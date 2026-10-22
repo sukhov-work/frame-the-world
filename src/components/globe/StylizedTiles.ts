@@ -170,8 +170,9 @@ import {
   type FacadePaintedVolume,
   type FacadeSlotRow,
 } from "../../lib/globe/facadeResidency";
-import { useFacadesStore } from "../../store/facades";
+import { facadeRowById, useFacadesStore } from "../../store/facades";
 import type { FacadePoseSnapshot } from "../../lib/wix/facadeRecords";
+import type { PlaceListItem } from "../../lib/wix/placeRecords";
 import { attachPins } from "./Pins";
 import { usePinsStore } from "../../store/pins";
 import { attachPlaceMarkers } from "./scene/placeMarkers";
@@ -306,6 +307,7 @@ import {
   WGS84_B,
   MODELS,
   PHOTO_PROJECT,
+  photoProjectFor,
 } from "./tuning";
 import { bandCurve, easeK, ultraLightAt } from "../../lib/globe/lightBands";
 import {
@@ -533,6 +535,12 @@ export function attachStylizedTiles(opts: {
   // U6: the foveation boundary mirror — flipped in stepViewFocus when fpvActive changes; the
   // per-tier gate (foveation null on high) lives in the modules, so this only tracks FPV.
   let foveaOn = false;
+  // F6 (2026-10-23): the photo projection's TIER, resolved ONCE here — the /m shell (`body.m`,
+  // server-rendered, so readable before the orchestrator's own `isMobileShell` below) and every
+  // coarse-pointer device take `PHOTO_PROJECT_LEAN` (K 2 · 1024² layers · 512-px depth maps …),
+  // the desktop keeps `PHOTO_PROJECT`. Both tilesets compile the SAME K — they share the feed.
+  const photoLean = lean || (typeof document !== "undefined" && document.body.classList.contains("m"));
+  const photoTune = photoProjectFor(photoLean);
   const buildings = attachBuildings(scene, {
     camera,
     renderer,
@@ -542,6 +550,7 @@ export function attachStylizedTiles(opts: {
     // T106 OSM (2026-09-07f): the deferred crease-edge budget, keyed on the same `lean` as the
     // enriched queue's (a separate budget — the two queues drain in the same frame).
     loadBudgetMs: lean ? BUILDINGS.loadBudgetMsLean : BUILDINGS.loadBudgetMs,
+    photoSlots: photoTune.slots,
   });
   // GLO-30 terrain patch (U7→bake slice, design ruling 2026-08-18): silent + automatic — the
   // registry decides where the high-accuracy self-baked terrain composites over CWT; the user
@@ -625,6 +634,7 @@ export function attachStylizedTiles(opts: {
           renderer,
           url: enrichedUrl,
           bbox: enrichedBbox,
+          photoSlots: photoTune.slots, // F6: the OSM set's K, verbatim (one feed, one K)
           terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
           // T77 slice B 4d: the depth-aware twin, so a seat taken against a fine tile survives the
           // LRU evicting that tile and its coarse parent answering in its place.
@@ -1501,16 +1511,16 @@ export function attachStylizedTiles(opts: {
   //     instance follows the facade-photo store (the technical twin of the upload store — never a
   //     pin); its live geometry is the projector's DRAFT slot, which renders the depth map at the pose
   //     and publishes the ONE feed both building sets read per render pass. The SAVED photos near
-  //     the view (store/facades, the owner's own rows in v1 — C6) stand as MARKERS and the nearest
+  //     the view (store/facades — every member's rows, public since T190) stand as MARKERS and the nearest
   //     in-view ones earn the other projector slots (F3, `stepFacadeResidency`); the MOVE / ROTATE /
   //     SCALE gizmo on the draft (F1, scene/facadeGizmo) is fed pointers from CAPTURE-phase
   //     listeners on the canvas's parent so GlobeControls never sees a handle drag
   //     (`onFacadeGizmoDown`). The arrival flight is the same pose law as a pin's and fires ONLY on
   //     the phase transition into "placed" (`facadeFlyArmed`) — a nudge, a slider, a gizmo move or a
-  //     re-seat never re-flies (the prototype re-flew on every nudge). Desktop-only: the projector,
-  //     the markers and the gizmo attach under `hqAllowed` (the /m shell and coarse pointers never
-  //     pay the depth pass; the frustum alone is inert there, and the facade UI only mounts in
-  //     index.astro). -------------------------------------------------------------------------
+  //     re-seat never re-flies (the prototype re-flew on every nudge). Since F6 (2026-10-23) the
+  //     projector and the markers attach on EVERY tier (the lean tune on /m and coarse pointers);
+  //     the EDITING surface — the gizmo, the chip, the hover card, the menu, the facade UI in
+  //     index.astro — stays `hqAllowed`. ------------------------------------------------------
   // Registered BEFORE the frustum's own subscription (zustand calls listeners in registration
   // order): the frustum's `onPlaced` reads the flag the same tick the phase turns "placed".
   let facadeFlyArmed = false;
@@ -1591,8 +1601,24 @@ export function attachStylizedTiles(opts: {
   const _facadePrevLook = new THREE.Vector3();
   const _facadeLook = new THREE.Vector3();
   const _facadeFwd = new THREE.Vector3();
-  const photoProjector = hqAllowed
-    ? attachPhotoProjector(scene, { renderer, osmClipPlanes: buildings.clipPlanes() })
+  // F6 (2026-10-23, owner 2026-10-22g): the projector + the markers run on EVERY tier — the
+  // view-only tiers (the /m shell, a coarse pointer) see every member's textures (T190) under the
+  // lean tune and WITHOUT a draft record (no upload, no placing there); the editing surface (the
+  // gizmo, the hover card, the EDIT · REMOVE menu, the chip, MINE) stays `hqAllowed`.
+  const facadeViewAllowed = true;
+  const photoProjector = facadeViewAllowed
+    ? attachPhotoProjector(scene, {
+        renderer,
+        osmClipPlanes: buildings.clipPlanes(),
+        tune: {
+          slots: photoTune.slots,
+          layerPx: photoTune.layerPx,
+          depthMapPx: photoTune.depthMapPx,
+          depthRefreshMs: photoTune.depthRefreshMs,
+          anisotropy: photoTune.anisotropy,
+          draftSlot: hqAllowed,
+        },
+      })
     : null;
   buildings.setPhotoProjector(photoProjector?.feed ?? null);
   enriched?.setPhotoProjector(photoProjector?.feed ?? null);
@@ -1660,7 +1686,7 @@ export function attachStylizedTiles(opts: {
     }
     return null;
   };
-  const unregisterFacadeTargets = photoProjector
+  const unregisterFacadeTargets = photoProjector && !isMobileShell
     ? registerFacadeTargetProbe(() => {
         const g = facadeFrustum.current();
         if (!g) return null;
@@ -1668,8 +1694,12 @@ export function attachStylizedTiles(opts: {
       })
     : (): void => {};
   // F3 — the saved photos' markers + the residency plan's state (`stepFacadeResidency`).
-  const facadeMarkers = hqAllowed
-    ? attachFacadeMarkers(scene, { planeDistM: FRUSTUM.planeDistM, fallbackAspect: FRUSTUM.fallbackAspect })
+  const facadeMarkers = facadeViewAllowed
+    ? attachFacadeMarkers(scene, {
+        planeDistM: FRUSTUM.planeDistM,
+        fallbackAspect: FRUSTUM.fallbackAspect,
+        markerAngularSize: photoTune.markerAngularSize, // F6: the touch-target class on the lean tier
+      })
     : null;
   let facadeSlotsNow: string[] = [];
   let _prevFacadeWorld = useFacadesStore.getState().world;
@@ -1687,13 +1717,15 @@ export function attachStylizedTiles(opts: {
   });
   facadeMarkers?.setRows(_prevFacadeWorld);
   facadeMarkers?.setHidden(_prevFacadeEditing);
+  // MINE (the editor's facts — EDIT / REMOVE / MY CONTENT) is the DESKTOP page's (MY CONTENT ·
+  // TEXTURES lists it there on any pointer — a touch laptop included); the /m shell never asks (F6).
   let _prevMemberPhaseFacades = useMemberStore.getState().phase;
   const unsubMemberFacades = useMemberStore.subscribe((st) => {
     if (st.phase === _prevMemberPhaseFacades) return;
     _prevMemberPhaseFacades = st.phase;
-    if (st.phase === "member") void useFacadesStore.getState().loadMine();
+    if (st.phase === "member" && !isMobileShell) void useFacadesStore.getState().loadMine();
   });
-  if (_prevMemberPhaseFacades === "member") void useFacadesStore.getState().loadMine();
+  if (_prevMemberPhaseFacades === "member" && !isMobileShell) void useFacadesStore.getState().loadMine();
   // F1 — the gizmo on the draft frustum. Every live write is ONE store set (`restorePose` takes
   // the same shape the journal snapshots); the release records one undoable entry.
   let facadeGizmoDragId: number | null = null;
@@ -1815,11 +1847,71 @@ export function attachStylizedTiles(opts: {
   const placeMarkers = attachPlaceMarkers(scene, {
     terrainHeightAt: (latDeg, lonDeg) => ground.heightAt(latDeg, lonDeg),
   });
-  placeMarkers.setPlaces(usePlacesMapStore.getState().places);
-  const unsubPlaces = usePlacesMapStore.subscribe((s) => placeMarkers.setPlaces(s.places));
+  let _prevPlaces = usePlacesMapStore.getState().places;
+  placeMarkers.setPlaces(_prevPlaces);
+  // Identity-guarded (T189): the store also writes `onMap` / `loaded`; only a rows change re-places.
+  const unsubPlaces = usePlacesMapStore.subscribe((s) => {
+    if (s.places === _prevPlaces) return;
+    _prevPlaces = s.places;
+    placeMarkers.setPlaces(s.places);
+  });
   const placesFetchTimer = window.setTimeout(() => {
     if (usePlacesMapStore.getState().onMap) usePlacesMapStore.getState().ensureLoaded();
   }, PLACEMARKS.fetchIdleMs);
+  /** T189 (owner ruling 2026-10-22h): a click on a saved-place marker JUMPS INTO FPV at the saved
+   *  viewpoint — the MyPins / MobilePlaces order: the CLOCK FIRST (a place is a view AT a time —
+   *  `timeMs` → `setTime`, else `goLive`), then the one-shot FULL-pose jump (`stepFpvTransitions`
+   *  seats the temp pin and runs the entry; from inside FPV it re-poses in place — the BEST SPOT
+   *  preview's precedent, no `setTempPin` beforehand). */
+  const jumpToPlace = (p: PlaceListItem): void => {
+    const t = useTimeStore.getState();
+    if (p.timeMs !== null) t.setTime(p.timeMs);
+    else t.goLive();
+    useCameraStore.getState().requestFpvJump({
+      latDeg: p.latDeg,
+      lonDeg: p.lonDeg,
+      eyeM: p.eyeM,
+      headingDeg: p.headingDeg,
+      pitchDeg: p.pitchDeg,
+      fovDeg: p.fovDeg,
+    });
+  };
+  /** The place marker under an NDC point takes the click (orbit) / the tap (FPV); false = none. */
+  const tryPlaceMarkerClick = (ndcX: number, ndcY: number): boolean => {
+    if (!usePlacesMapStore.getState().onMap) return false;
+    const hit = placeMarkers.pick(ndcX, ndcY, camera);
+    if (!hit) return false;
+    jumpToPlace(hit);
+    return true;
+  };
+  /** F6: the view-only tier's TAP PEEK on a saved-facade marker — the row + the FPV pose at its apex
+   *  (the T186 math off the stored pose: the eye at the apex over the ground, the photo's heading /
+   *  pitch, its H-FOV at the live aspect) for `mobile/FacadePeek`'s LOOK FROM HERE. False = no row. */
+  const peekFacadeAt = (fid: string): boolean => {
+    const row = facadeRowById(useFacadesStore.getState(), fid);
+    if (!row) return false;
+    const groundM = clampGroundM(ground.heightAt(row.lat, row.lon) ?? 0);
+    useFacadesStore.getState()._setPeek({
+      id: fid,
+      jump: {
+        latDeg: row.lat,
+        lonDeg: row.lon,
+        eyeM: Math.max(0.5, row.apexAltM - groundM),
+        headingDeg: ((row.headingDeg % 360) + 360) % 360,
+        pitchDeg: row.pitchDeg,
+        fovDeg: verticalFovDeg(row.hFovDeg, camera.aspect),
+      },
+    });
+    return true;
+  };
+  /** The saved-facade marker under an NDC point takes the TAP on the /m shell (orbit and FPV alike —
+   *  a phone walks; `mobile/FacadePeek` is mounted there and nowhere else — codebot on PR #155); the
+   *  desktop page's click opens the editor instead (the orbit rung), coarse pointer or not. */
+  const tryFacadePeekTap = (ndcX: number, ndcY: number): boolean => {
+    if (!isMobileShell || !facadeMarkers) return false;
+    const fid = facadeMarkers.pick(ndcX, ndcY, camera);
+    return fid ? peekFacadeAt(fid) : false;
+  };
 
   // --- USER MODELS (MESH SUITE MS5, D3 placement 2026-09-02): the world's uploaded GLBs.
   //     store/userModels holds the cover-driven world read (mirrored from the same focus the
@@ -2216,7 +2308,7 @@ export function attachStylizedTiles(opts: {
     if (!best) {
       // T178 (owner 2026-10-22): a saved facade marker under the cursor opens its EDIT · REMOVE
       // menu — orbit and FPV alike (the marker stands on the ground, below the sky rungs).
-      if (openFacadeMarkerMenuAt(e.clientX, e.clientY)) {
+      if (hqAllowed && openFacadeMarkerMenuAt(e.clientX, e.clientY)) {
         e.preventDefault();
         menuConsumesPress();
         return;
@@ -2383,11 +2475,17 @@ export function attachStylizedTiles(opts: {
       tapRevealY = e.clientY;
       tapRevealUntil = frameNow() + ORCH.tapRevealMs; // T94: the latch rides the held clock
     }
+    // T189 (owner ruling 2026-10-22h): a click on a SAVED PLACE's pin jumps into FPV at the saved
+    // viewpoint (clock first). Places outrank the facade markers (the hover order agrees).
+    if (tryPlaceMarkerClick(ndcX, ndcY)) return;
     // F3 (2026-10-21): a click on a SAVED FACADE PHOTO's marker re-opens it as the draft (the
     // pins' "a click opens it" idiom) — the frustum rebuilds, the panel shows, the flight frames it.
     if (facadeMarkers) {
       const fid = facadeMarkers.pick(ndcX, ndcY, camera);
       if (fid) {
+        if (isMobileShell) {
+          if (peekFacadeAt(fid)) return; // F6: the /m shell PEEKS (the only shell that mounts FacadePeek)
+        }
         const item = useFacadesStore.getState().mine.find((m) => m.id === fid);
         if (item) {
           useFacadePhotoStore.getState().openSaved(item);
@@ -3677,8 +3775,9 @@ export function attachStylizedTiles(opts: {
       }
       const rect = dom.getBoundingClientRect();
       const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
-      // Marker first, then a FIND ghost projection — a tap on a standing jumps time onto it.
-      if (!trySkyMarkerClick(ndcX, ndcY) && !tryFindGhostClick(ndcX, ndcY)) {
+      // Marker first, then a SAVED PLACE's pin (T189: re-jump to that viewpoint from inside FPV),
+      // then a FIND ghost projection — a tap on a standing jumps time onto it.
+      if (!trySkyMarkerClick(ndcX, ndcY) && !tryPlaceMarkerClick(ndcX, ndcY) && !tryFacadePeekTap(ndcX, ndcY) && !tryFindGhostClick(ndcX, ndcY)) {
         // Tap-reveal (M3c): nothing interactive under the tap — park the synthetic hover
         // (the ghost pick just seated _pickRay); sky-only, same floor as the context menu.
         if (
@@ -3718,6 +3817,23 @@ export function attachStylizedTiles(opts: {
         e.preventDefault();
       }
       return;
+    }
+    // T188 (owner 2026-10-22g, "quick move / rotate / scale … same as with meshes"): Blender's
+    // G / R / S switch the PLACED facade photo's gizmo op in orbit AND in FPV (the facade edits in
+    // both — T176), the same key again → OFF; an armed building / model owns the keys instead
+    // (its chip holds the slot then — the FacadeEditChip yields the same way). Routed through the
+    // store so the chip tabs, the panel's row and the keys are ONE path. S shadows walk-back in
+    // FPV for the placed photo's duration, as it does for an armed mesh (the chip hint says so).
+    if (hqAllowed && !e.metaKey && !e.ctrlKey && !e.altKey && !bldgArmed && !modelArmed && !typingTarget(document.activeElement as HTMLElement | null)) {
+      const fs = useFacadePhotoStore.getState();
+      if (fs.phase === "placed") {
+        const op = e.code === "KeyG" ? "move" : e.code === "KeyR" ? "rotate" : e.code === "KeyS" ? "scale" : null;
+        if (op) {
+          fs.setGizmoOp(fs.gizmoOp === op ? "none" : op);
+          e.preventDefault();
+          return;
+        }
+      }
     }
     if (fpvActive && !e.metaKey && !e.ctrlKey) {
       // Arrow keys + WASD (owner 2026-08-14, ask 2) WALK on the ground plane (you walk where
@@ -3929,7 +4045,7 @@ export function attachStylizedTiles(opts: {
         }
       }
       // T178: a long-press on a saved facade marker opens its menu (the right-click twin on glass).
-      if (openFacadeMarkerMenuAt(clientX, clientY)) {
+      if (hqAllowed && openFacadeMarkerMenuAt(clientX, clientY)) {
         longPressFired = true;
         return;
       }
@@ -4959,6 +5075,14 @@ export function attachStylizedTiles(opts: {
               setFeeding: (on: boolean) => facadeGizmo._setFeeding(on),
             }
           : null,
+      // T189: the saved-place pins — counts, the hover, the pick (an NDC point → the place id).
+      places: () => ({
+        markers: placeMarkers.count(),
+        hovered: placeMarkers.hovered(),
+        scaleOf: (id: string) => placeMarkers.scaleOf(id),
+        anchorOf: (id: string) => placeMarkers.anchorOf(id),
+        pick: (ndcX: number, ndcY: number) => placeMarkers.pick(ndcX, ndcY, camera)?.id ?? null,
+      }),
       facades: () => ({
         markers: facadeMarkers?.count() ?? null,
         hovered: facadeMarkers?.hovered() ?? null,
@@ -7494,11 +7618,15 @@ export function attachStylizedTiles(opts: {
             useUserModelsStore.getState().reportViewport(eyeGeo.latDeg, eyeGeo.lonDeg, alt, MODELS.fpvFetchRadiusM);
           } else useUserModelsStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
           // F3 — the saved facade photos' world read, the same cover law (the eye in first person,
-          // the focus in orbit); the store throttles + short-circuits an unchanged cover.
-          if (fpvActive) {
-            const eyeGeoF = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
-            useFacadesStore.getState().reportViewport(eyeGeoF.latDeg, eyeGeoF.lonDeg, alt);
-          } else useFacadesStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt);
+          // the focus in orbit); the store throttles + short-circuits an unchanged cover. T190 made
+          // the read PUBLIC (no member gate in the store); it is asked only where something renders
+          // it — the markers, on every tier since F6.
+          if (facadeMarkers) {
+            if (fpvActive) {
+              const eyeGeoF = ecefToGeodetic([camera.position.x, camera.position.y, camera.position.z]);
+              useFacadesStore.getState().reportViewport(eyeGeoF.latDeg, eyeGeoF.lonDeg, alt, photoTune.coverRadiusM);
+            } else useFacadesStore.getState().reportViewport(focusGeo.latDeg, focusGeo.lonDeg, alt, photoTune.coverRadiusM);
+          }
           camStore._syncFocus(focusGeo.latDeg, focusGeo.lonDeg);
           if (!fpvActive) mirrorCamGeo(); // viewer ground point — FPV writes it at HUD cadence
           // Ground metres per CSS px at the screen centre (owner 2026-09-16 — the /m 2D map's
@@ -8718,6 +8846,9 @@ export function attachStylizedTiles(opts: {
   let skyNameAmt = 0;
   let skyNameNight = 0;
   const _skyNameUp = new THREE.Vector3();
+  /** T189 — the hovered saved-place pin (the hover step below owns it; declared here because the
+   *  sky hover's cursor reset reads it first in the frame). */
+  let placeHoverId: string | null = null;
   const stepSkyHover = () => {
         // Tap-reveal latch (M3c): while parked (touch tap on open sky), the tap point IS the
         // hover point — the whole cascade below (glow / ghost pulse / names) runs off it.
@@ -8794,8 +8925,8 @@ export function attachStylizedTiles(opts: {
         // we never write over "crosshair"); stepPinHover runs later and leaves "pointer" in
         // place while a sky body owns it (pins win ties simply by running last).
         if (skyHoverKind || skyGhostKey) dom.style.cursor = "pointer";
-        else if (dom.style.cursor === "pointer" && !usePinsStore.getState().hoverPin)
-          dom.style.cursor = "";
+        else if (dom.style.cursor === "pointer" && !usePinsStore.getState().hoverPin && placeHoverId === null)
+          dom.style.cursor = ""; // a pin or a saved-place marker (T189) may own the pointer — leave it
   };
 
   const stepFrustumResnapAndTick = () => {
@@ -8852,6 +8983,17 @@ export function attachStylizedTiles(opts: {
   const stepFacadeResidency = () => {
         if (!facadeMarkers || !photoProjector) return;
         facadeMarkers.update(camera); // the glyphs' angular-size recompose (cheap: only when the camera moved > 1 m)
+        // F6: on the /m 2D map the buildings are detached — nothing to paint; the residents release
+        // (no depth pass runs against nothing) and the markers alone stay on the map.
+        if (isMobileShell && !fpvActive && useCameraStore.getState().mapMode === "2d") {
+          if (facadeSlotsNow.length) {
+            for (const id of facadeSlotsNow) photoProjector.release(id);
+            photoProjector.setPriority([DRAFT_SLOT_ID]);
+            facadeMarkers.setResident([]);
+            facadeSlotsNow = [];
+          }
+          return;
+        }
         _facCam.copy(camera.position);
         const camV: [number, number, number] = [_facCam.x, _facCam.y, _facCam.z];
         const rows = facadeMarkers.rows();
@@ -8899,7 +9041,7 @@ export function attachStylizedTiles(opts: {
         }
         for (const id of [...facadeVolumes.keys()]) if (!seen.has(id)) facadeVolumes.delete(id); // rows that left the world read
         const plan = planFacadeSlots(slotRows, facadeSlotsNow, {
-          slots: photoProjector.capacity - 1, // the draft keeps its own record for good
+          slots: photoProjector.capacity - (hqAllowed ? 1 : 0), // the draft keeps its own record for good (the editing tier only — F6)
           rangeM: PHOTO_PROJECT.slotRangeM,
           swapMarginM: PHOTO_PROJECT.slotSwapMarginM,
         });
@@ -8918,13 +9060,42 @@ export function attachStylizedTiles(opts: {
    *  pick under the pointer, the marker eases up + glows in the scene module, the apex projected
    *  to client px mirrored into the facades store for the compact HTML card, FacadeHoverCard).
    *  Orbit AND FPV (mouse / pen only — a held button or finger stands it down). */
+  /** T189: the saved-place pin hover — the hovered pin grows + brightens (the facade markers'
+   *  idiom) and the pointer cursor says "clickable" (a click jumps into FPV there). Orbit AND FPV
+   *  (mouse / pen only — a held button or finger stands it down). Places OUTRANK the facade
+   *  markers: while a pin is hovered the facade hover stands down (the click rungs agree), and
+   *  the pin hover (`stepPinHover`) leaves the pointer cursor alone while a place holds it. */
+  const stepPlaceHover = () => {
+        const eligible =
+          !placingNow() && !anyPointerDown && fpvDragId === null && facadeGizmoDragId === null && Number.isFinite(hoverX) && usePlacesMapStore.getState().onMap;
+        if (!eligible) {
+          if (placeHoverId !== null) {
+            placeHoverId = null;
+            placeMarkers.setHover(null);
+            if (dom.style.cursor === "pointer" && !skyHoverKind) dom.style.cursor = "";
+          }
+          return;
+        }
+        if (frameCount % PINS.hoverEveryFrames !== 0) return;
+        const rect = dom.getBoundingClientRect();
+        const [nx, ny] = clientToNdc(hoverX, hoverY, rect);
+        const id = placeMarkers.pick(nx, ny, camera)?.id ?? null;
+        if (id === placeHoverId) return;
+        placeHoverId = id;
+        placeMarkers.setHover(id);
+        if (id !== null) dom.style.cursor = "pointer";
+        else if (dom.style.cursor === "pointer" && !skyHoverKind) dom.style.cursor = "";
+  };
   const _facHoverApex = new THREE.Vector3();
   const stepFacadeHover = () => {
+        if (!hqAllowed) return; // F6: the view-only tier taps (the peek) — no hover card, no menu
         if (!facadeMarkers) return;
         const fac = useFacadesStore.getState();
         // An open marker menu owns the pointer's attention — the card stands down under it
-        // (browser-read 2026-10-22: the card re-synced under the menu every few frames).
-        const eligible = !placingNow() && !anyPointerDown && fpvDragId === null && facadeGizmoDragId === null && fac.menu === null && Number.isFinite(hoverX);
+        // (browser-read 2026-10-22: the card re-synced under the menu every few frames). A hovered
+        // saved-place pin outranks a facade marker (T189).
+        const eligible =
+          !placingNow() && !anyPointerDown && fpvDragId === null && facadeGizmoDragId === null && fac.menu === null && Number.isFinite(hoverX) && placeHoverId === null;
         if (!eligible) {
           if (fac.hover) {
             facadeMarkers.setHover(null);
@@ -9109,8 +9280,8 @@ export function attachStylizedTiles(opts: {
             if (pinsStore.hoverPin) {
               pins.setHover(null);
               pinsStore._syncHover(null, null);
-              // A sky body may own the pointer cursor (stepSkyHover) — leave it in place.
-              if (dom.style.cursor === "pointer" && !skyHoverKind) dom.style.cursor = "";
+              // A sky body (stepSkyHover) or a saved-place pin (T189) may own the pointer cursor — leave it.
+              if (dom.style.cursor === "pointer" && !skyHoverKind && placeHoverId === null) dom.style.cursor = "";
             }
           } else if (frameCount % PINS.hoverEveryFrames === 0) {
             const rect = dom.getBoundingClientRect();
@@ -9140,7 +9311,7 @@ export function attachStylizedTiles(opts: {
               dom.style.cursor = "pointer";
             } else {
               if (pinsStore.hoverPin) pinsStore._syncHover(null, null);
-              if (dom.style.cursor === "pointer" && !skyHoverKind) dom.style.cursor = "";
+              if (dom.style.cursor === "pointer" && !skyHoverKind && placeHoverId === null) dom.style.cursor = "";
             }
           }
         }
@@ -10018,6 +10189,7 @@ export function attachStylizedTiles(opts: {
         stepFacadeArrival();
         stepFacadeResidency();
         stepFacadeGizmo();
+        stepPlaceHover();
         stepFacadeHover();
         stepArrivalReframing();
         stepPinsUpdate();

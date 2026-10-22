@@ -161,6 +161,7 @@ body.m.mw-open .m-bottom {
   bottom: calc(var(--mw-credit-h, 0.85rem) + env(safe-area-inset-bottom));
 }
 body.m.mw-open .m-bottom .m-peek,
+body.m.mw-open .m-bottom .m-fpeek,
 body.m.mw-open .m-bottom .m-tabs {
   display: none;
 }

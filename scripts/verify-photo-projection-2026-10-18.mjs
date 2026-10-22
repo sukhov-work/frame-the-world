@@ -60,12 +60,14 @@ ws.onmessage = (ev) => {
   if (msg.method === "Runtime.consoleAPICalled") {
     const type = msg.params?.type;
     const text = (msg.params.args ?? []).map((a) => a.value ?? a.description ?? "").join(" ");
-    if (type === "error") consoleErrors.push(text.slice(0, 240));
+    if (type === "error" && !/Content Script - Failed to load cookie bridge/.test(text)) consoleErrors.push(text.slice(0, 240));
     if ((type === "error" || type === "warning") && GL_RE.test(text)) glNoise.push(`console.${type}: ${text.slice(0, 240)}`);
   }
   if (msg.method === "Runtime.exceptionThrown") {
     const d = msg.params?.exceptionDetails;
-    consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
+    // The house profile's extensions throw in THEIR content scripts (2026-10-23, verify.md (b0)) — never the app's.
+    const fromExtension = (d?.url ?? "").startsWith("chrome-extension://") || (d?.stackTrace?.callFrames ?? []).some((f) => (f.url ?? "").startsWith("chrome-extension://"));
+    if (!fromExtension) consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
   }
   if (msg.method === "Log.entryAdded") {
     const e = msg.params?.entry;

@@ -157,7 +157,7 @@ function FacadeOverlay() {
           <InfoDot
             pos="down"
             label="About the facade photo flow"
-            tip="Drop a street photo of a building → we read its EXIF → place it as a camera on the globe → the photo is projected onto the 3D buildings. Members can save it — private, only yours."
+            tip="Drop a street photo of a building → we read its EXIF → place it as a camera on the globe → the photo is projected onto the 3D buildings. Members can save it — every visitor then sees it on the buildings; only you can edit or remove it."
           />
         </div>
         <div className="uf-steps">
@@ -170,9 +170,9 @@ function FacadeOverlay() {
         </div>
       </header>
       <div className="ff-title">
-        <span className="uf-mono uf-accent">FACADE PHOTO · PROTOTYPE</span>
+        <span className="uf-mono uf-accent">FACADE PHOTO</span>
         <span className="uf-mono ff-title__sub">
-          THIS PHOTO IS PROJECTED ONTO THE 3D BUILDINGS. A SAVED FACADE PHOTO IS PRIVATE — NEVER PUBLISHED.
+          THIS PHOTO IS PROJECTED ONTO THE 3D BUILDINGS. A SAVED FACADE PHOTO IS SHOWN TO EVERY VISITOR — ONLY YOU CAN EDIT OR REMOVE IT.
         </span>
       </div>
       {phase === "review" ? <FacadeReviewStep /> : <FacadeDropStep />}
@@ -263,7 +263,7 @@ function FacadeDropStep() {
         </div>
       )}
       {phase === "idle" && <FacadeMineList />}
-      <span className="uf-privacy">A SAVED FACADE PHOTO STAYS PRIVATE — NOTHING IS PUBLISHED</span>
+      <span className="uf-privacy">A SAVED FACADE PHOTO IS PUBLIC — EVERY VISITOR SEES IT ON THE BUILDINGS; THE ORIGINAL FILE STAYS PRIVATE</span>
     </section>
   );
 }
@@ -832,12 +832,12 @@ function FacadeDetailPanel() {
           />
         </div>
 
-        {/* F2 — SAVE / UPDATE / DELETE the pose as a private FacadePhotos row (members only; the
+        {/* F2 — SAVE / UPDATE / DELETE the pose as a FacadePhotos row (members only to write; PUBLIC to read since T190; the
             pin panel's `.pd-save` chrome). The writes live in store/facadeSave. */}
         <div className="pd-save ff-save">
           <div className="pd-adjust__head">
             <span className="pd-adjust__title">{store.savedFacadeId ? "SAVED FACADE PHOTO" : "SAVE FACADE PHOTO"}</span>
-            <span className="uf-mono ff-save__note">PRIVATE · ONLY YOU</span>
+            <span className="uf-mono ff-save__note">PUBLIC · YOURS TO EDIT</span>
           </div>
           <label className="pd-save__name">
             <span className="pd-save__namelabel">TITLE</span>
@@ -909,7 +909,7 @@ function FacadeDetailPanel() {
             )}
           </div>
           {memberPhase === "anonymous" && (
-            <span className="uf-mono ff-save__hint">SIGN IN TO KEEP THIS FACADE PHOTO — PRIVATE, ONLY YOURS.</span>
+            <span className="uf-mono ff-save__hint">SIGN IN TO KEEP THIS FACADE PHOTO — EVERY VISITOR WILL SEE IT; ONLY YOU CAN EDIT OR REMOVE IT.</span>
           )}
         </div>
 

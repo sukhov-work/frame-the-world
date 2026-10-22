@@ -35,8 +35,8 @@ import { PHOTO_PROJECT_SLOTS, type PhotoProjectorFeed, type PhotoProjectorSlot }
  * resolves per task).
  *
  * Store-free by the scene fence: the orchestrator pushes the store's state in (`setSource` /
- * `request`) and the live frustum per frame (`update` / `setGeometry`). Desktop-only by the attach
- * gate in the orchestrator.
+ * `request`) and the live frustum per frame (`update` / `setGeometry`). Every tier since F6 — the
+ * orchestrator passes the tier's `tune` (K, the layer edge, the depth edge, the cadence, the draft).
  *
  * Cost when OFF: nothing (no pass, no texture, no live slot → one dead uniform branch per fragment
  * in the city material). Cost when ON: at most ONE depth re-render per frame across the slots (a
@@ -260,15 +260,42 @@ interface SlotRec {
   error: string | null;
 }
 
+/** F6 (2026-10-23): the per-tier knobs the projector reads ONCE at attach — the desktop tier takes
+ *  `PHOTO_PROJECT`'s, the lean / mobile tier `PHOTO_PROJECT_LEAN`'s (the orchestrator resolves them
+ *  with `photoProjectFor(lean)`). `slots` MUST equal the K the city material was compiled with. */
+export interface PhotoProjectorTune {
+  /** K — the pool's records = the material's compiled slots. */
+  slots?: number;
+  /** The square layer edge of the photo array (px). */
+  layerPx?: number;
+  /** The depth map's long edge (px). */
+  depthMapPx?: number;
+  /** The live depth re-render cadence (ms). */
+  depthRefreshMs?: number;
+  /** Anisotropic filtering on the photo array (clamped to the device max). */
+  anisotropy?: number;
+  /** Whether record 0 is the DRAFT (the photo being placed / edited — the desktop flow). A
+   *  view-only tier (/m: no upload, no editing) sets false so every record serves a SAVED row:
+   *  `setSource` / the draft's `update` then address a detached record that is never rendered,
+   *  `request(DRAFT_SLOT_ID)` answers false, and `capacity` is the whole pool. */
+  draftSlot?: boolean;
+}
+
 export function attachPhotoProjector(
   scene: THREE.Scene,
   opts: {
     renderer: THREE.WebGLRenderer;
     /** The OSM set's clip prism (the bbox hole) — the OSM depth pass carries it; null = no mask. */
     osmClipPlanes: THREE.Plane[] | null;
+    tune?: PhotoProjectorTune;
   },
 ): PhotoProjectorHandle {
-  const K = PHOTO_PROJECT_SLOTS;
+  const tune = opts.tune ?? {};
+  const K = Math.max(1, Math.floor(tune.slots ?? PHOTO_PROJECT_SLOTS));
+  const depthMapPx = Math.max(16, Math.floor(tune.depthMapPx ?? PHOTO_PROJECT.depthMapPx));
+  const depthRefreshMs = tune.depthRefreshMs ?? PHOTO_PROJECT.depthRefreshMs;
+  const anisotropyWant = tune.anisotropy ?? PHOTO_PROJECT.anisotropy;
+  const draftSlot = tune.draftSlot ?? true;
   const feed: PhotoProjectorFeed = {
     slots: [],
     photos: null,
@@ -294,7 +321,7 @@ export function attachPhotoProjector(
   // `pool` is the fixed K records; `feed.slots` is the SAME records' feed halves in PRIORITY order
   // (the material packs the live ones in that order). The draft is the pool's first record by
   // construction, so with no `setPriority` call the prototype's single-slot behaviour is exact.
-  const pool: SlotRec[] = Array.from({ length: K }, (_, i) => ({
+  const makeRec = (i: number): SlotRec => ({
     id: null,
     feed: {
       on: false,
@@ -323,9 +350,14 @@ export function attachPhotoProjector(
     flipV: 0,
     loadSeq: 0,
     error: null,
-  }));
-  // The draft always holds the first record (never released; its texture comes and goes).
-  pool[0].id = DRAFT_SLOT_ID;
+  });
+  const pool: SlotRec[] = Array.from({ length: K }, (_, i) => makeRec(i));
+  // The draft always holds the first record (never released; its texture comes and goes) — on the
+  // desktop tier. A view-only tier (F6, `draftSlot: false`) has no draft: the pool is all SAVED
+  // rows and the draft handle addresses a DETACHED record (layer −1, never in the pool, never
+  // rendered, never loaded — `syncTexture` skips a record without a layer).
+  const draft: SlotRec = draftSlot ? pool[0] : makeRec(-1);
+  if (draftSlot) pool[0].id = DRAFT_SLOT_ID;
   let order: SlotRec[] = pool.slice();
   const syncFeedOrder = (): void => {
     feed.slots = order.map((r) => r.feed);
@@ -347,10 +379,10 @@ export function attachPhotoProjector(
 
   const ensureTarget = (r: SlotRec): THREE.WebGLRenderTarget => {
     if (r.rt) return r.rt;
-    const depthTex = new THREE.DepthTexture(PHOTO_PROJECT.depthMapPx, PHOTO_PROJECT.depthMapPx, THREE.UnsignedIntType);
+    const depthTex = new THREE.DepthTexture(depthMapPx, depthMapPx, THREE.UnsignedIntType);
     depthTex.minFilter = THREE.NearestFilter;
     depthTex.magFilter = THREE.NearestFilter;
-    const rt = new THREE.WebGLRenderTarget(PHOTO_PROJECT.depthMapPx, PHOTO_PROJECT.depthMapPx, {
+    const rt = new THREE.WebGLRenderTarget(depthMapPx, depthMapPx, {
       format: THREE.RedFormat,
       type: THREE.UnsignedByteType,
       depthBuffer: true,
@@ -367,7 +399,7 @@ export function attachPhotoProjector(
 
   const sizeDepthFor = (r: SlotRec, a: number): void => {
     const rt = ensureTarget(r);
-    const px = PHOTO_PROJECT.depthMapPx;
+    const px = depthMapPx;
     const w = a >= 1 ? px : Math.max(16, Math.round(px * a));
     const h = a >= 1 ? Math.max(16, Math.round(px / a)) : px;
     if (rt.width !== w || rt.height !== h) rt.setSize(w, h); // resizes the depth texture with it
@@ -418,7 +450,7 @@ export function attachPhotoProjector(
   // by the residency's hysteresis. The bitmap is closed the moment the copy returns (the pixels
   // are on the GPU); `needsUpdate` is never set on the array after the allocation.
   let photos: THREE.DataArrayTexture | null = null;
-  const layerPx = PHOTO_PROJECT.layerPx;
+  const layerPx = Math.max(64, Math.floor(tune.layerPx ?? PHOTO_PROJECT.layerPx));
   const ensurePhotoArray = (): THREE.DataArrayTexture => {
     if (photos) return photos;
     const arr = new THREE.DataArrayTexture(null, layerPx, layerPx, K);
@@ -430,7 +462,7 @@ export function attachPhotoProjector(
     arr.magFilter = THREE.LinearFilter;
     arr.wrapS = THREE.ClampToEdgeWrapping;
     arr.wrapT = THREE.ClampToEdgeWrapping;
-    arr.anisotropy = Math.min(PHOTO_PROJECT.anisotropy, opts.renderer.capabilities.getMaxAnisotropy());
+    arr.anisotropy = Math.min(anisotropyWant, opts.renderer.capabilities.getMaxAnisotropy());
     arr.source.dataReady = false; // allocate; transfer nothing
     arr.needsUpdate = true;
     opts.renderer.initTexture(arr);
@@ -496,7 +528,7 @@ export function attachPhotoProjector(
 
   const syncTexture = (r: SlotRec): void => {
     const url = r.source.url;
-    if (url === r.textureUrl) return;
+    if (url === r.textureUrl || r.layer < 0) return; // a detached record (no draft slot) never loads
     if (!url) {
       r.loadSeq++;
       dropTexture(r);
@@ -542,7 +574,7 @@ export function attachPhotoProjector(
     textureReady: r.textureReady,
     textureSize: r.textureSize ? [r.textureSize[0], r.textureSize[1]] : null,
     layer: r.layer,
-    depthSize: r.rt ? [r.rt.width, r.rt.height] : [PHOTO_PROJECT.depthMapPx, PHOTO_PROJECT.depthMapPx],
+    depthSize: r.rt ? [r.rt.width, r.rt.height] : [depthMapPx, depthMapPx],
     depthRenders: r.depthRenders,
     lastDepthMs: r.lastDepthMs,
     apex: [r.feed.apexW.x, r.feed.apexW.y, r.feed.apexW.z],
@@ -577,7 +609,7 @@ export function attachPhotoProjector(
       }
       if (r.depthDirty) {
         if (!toRender) toRender = r;
-      } else if (nowMs - r.lastDepthMs > PHOTO_PROJECT.depthRefreshMs) {
+      } else if (nowMs - r.lastDepthMs > depthRefreshMs) {
         if (!stalest || r.lastDepthMs < stalest.lastDepthMs) stalest = r;
       }
     }
@@ -599,8 +631,6 @@ export function attachPhotoProjector(
     }
   };
 
-  const draft = pool[0];
-
   return {
     feed,
     get capacity() {
@@ -615,6 +645,7 @@ export function attachPhotoProjector(
     },
     request(id, src) {
       if (id === DRAFT_SLOT_ID) {
+        if (!draftSlot) return false;
         applySource(draft, src);
         return true;
       }

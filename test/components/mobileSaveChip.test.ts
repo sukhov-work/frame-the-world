@@ -76,7 +76,11 @@ describe("◎ SAVE — the icon cell (owner 2026-09-08b)", () => {
 
   it("out of FPV the cell is absent — a view is what gets saved", () => {
     useMemberStore.setState({ phase: "member" });
-    expect(render()).not.toContain("m-act--icon");
+    // The SAVE cell is the bare `m-act m-act--icon`; T189's MY LOC pin cell (`m-act--myloc`) is the
+    // one icon cell that lives OUTSIDE FPV — it is not this cell.
+    const html = render();
+    expect(html).not.toMatch(/class="m-act m-act--icon"/);
+    expect(html).not.toContain("◎");
   });
 
   it("the cell is the altitude nudges' geometry (44 px round) and the dimmed state is styled", () => {

@@ -251,8 +251,11 @@ top-level globals; same removal/rename rule):
   `https://static.wixstatic.com/media/`, ≤ 6 MiB) — a client never dictates a URL; a thumb whose
   descriptor was refused is stored as NO thumb (id + URL null). **C6:** a projected photo is EXACT by
   nature — reduced precision cannot apply, so `isPublic` is ALWAYS false and `moderation` "PRIVATE"
-  (server-stamped, never body-driven) and the world read is owner-filtered; a public tier needs
-  explicit consent + the moderation gate before any flag exists.
+  (server-stamped, never body-driven). **T190 (owner ruling 2026-10-22g): the world read
+  (`?cells=`) is PUBLIC and owner-UNFILTERED — every visitor, signed out, streams every member's
+  textures, unmoderated (REMOVED withheld); the row never carries the member id. MINE and the writes
+  stay owner-gated. The owner's explicit waiver of C6's moderation gate for TEXTURES; C6 still
+  governs the photo pins.**
 - There is **no Listings collection** — listing fields ride Photos/PublicPins (ARCHITECTURE §5 corrected
   by the 2026-08-13 audit).
 - Schema changes land in the provision script FIRST (platform.md item 13; `extensions.dataCollections`
@@ -280,12 +283,13 @@ top-level globals; same removal/rename rule):
 - **12 API routes** under `src/pages/api/` since 2026-10-21 (`/api/facades`; 11 as of 2026-09-02i —
   audit #3 D7 re-count gave 9 on 2026-08-22; the 2026-08-13 "26 routes" figure was the whole `wix
   build` route table).
-  **`/api/facades`** (PHOTO PROJECTION F2 persist, T169 / T172, 2026-10-21; every method member-only →
-  401 `SIGNED_OUT`; `src/pages/api/facades.ts`, pure core `src/lib/wix/facadeRecords.ts`):
-  **GET** — `?cells=<gh5,…>` is the RESIDENCY read (the `/api/world-models` cell grammar: 1..16
-  distinct p5 cells, `parseWorldCells` reused by import; 400 otherwise) → `{ facades:
-  FacadeWorldItem[], complete }` — `hasSome("gh5", cells)` ∧ `ownerMemberId === me` (v1 world = MINE,
-  C6) ∧ `moderation ≠ "REMOVED"`, one page of 200 oldest-first; a `FacadeWorldItem` is `{ id, title,
+  **`/api/facades`** (PHOTO PROJECTION F2 persist, T169 / T172, 2026-10-21; the world read PUBLIC since
+  T190 (2026-10-22g), every other method member-only → 401 `SIGNED_OUT`; `src/pages/api/facades.ts`,
+  pure core `src/lib/wix/facadeRecords.ts`):
+  **GET** — `?cells=<gh5,…>` is the PUBLIC residency read (the `/api/world-models` cell grammar: 1..16
+  distinct p5 cells, `parseWorldCells` reused by import; 400 otherwise; no member, no owner filter)
+  → `{ facades: FacadeWorldItem[], complete }` — `hasSome("gh5", cells)` ∧ `moderation ≠ "REMOVED"`,
+  one page of 200 oldest-first (T192: never paged); a `FacadeWorldItem` is `{ id, title,
   displayUrl, thumbUrl, updatedAt, lat, lon, apexAltM, altitudeM, headingDeg, pitchDeg, rollDeg,
   focalLengthMm, hFovDeg, fovEstimated, textureWidth, textureHeight, strength, ownLight, rangeM }` and
   NEVER an owner id, a file id or the original; without `cells`, MY FACADES: `?skip=` (0-based) pages

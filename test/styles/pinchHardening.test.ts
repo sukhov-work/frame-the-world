@@ -32,6 +32,8 @@ describe("U1 pinch hardening — the audited touch-action leak list", () => {
     ["src/styles/mobile/chrome.css", ".m-bottom", "none"], // tab bar + dock wrap
     ["src/styles/mobile/chrome.css", ".m-actions", "none"], // scene action chips
     ["src/styles/mobile/chrome.css", ".m-scrim", "none"], // sheet dismiss scrim
+    ["src/styles/mobile/chrome.css", ".m-layers {", "none"], // T191 the LAYERS modal root
+    ["src/styles/mobile/chrome.css", ".m-layers__scrim", "none"], // T191 its scrim
     ["src/styles/mobile/chrome.css", ".m-sheet__body", "pan-y"], // sheets scroll, never zoom
     ["src/styles/mini-map.css", ".mm", "none"], // FPV mini-map patch
     ["src/styles/sky-menu.css", ".skymenu", "none"], // sky context menu

@@ -11,9 +11,10 @@ import { useMemberStore } from "./member";
  *    (`reportViewport`); a THROTTLED worker plans the p5 cover (`planModelCover`, the models' law
  *    with the facade knobs) and re-queries `/api/facades?cells=` only when the cover changed or the
  *    idle re-poll is due, in chunks of `FACADE_WORLD_CHUNK_CELLS`, swapping `world` atomically; a
- *    superseded answer is dropped. C6 — a projected photo is EXACT and rows are PRIVATE by default,
- *    so the v1 world read is OWNER-ONLY: it fires only while the member store says "member"
- *    (an anonymous visitor has no world, and a 401 is "no world", never an error to surface);
+ *    superseded answer is dropped. T190 (owner ruling 2026-10-22g): the world read is PUBLIC —
+ *    every visitor streams every member's textures, signed out and unmoderated (the C6 carve-out
+ *    for textures; the row carries no owner id); a 401 is still "no world", never an error to
+ *    surface (release skew — an older server still gating the read);
  *  • MINE — the member's own rows (MY FACADES), paged through `hasNext` (bounded);
  *  • the OPTIMISTIC MIRROR — a row the save flow just stored (`upsertMine`) joins `mine` AND
  *    `world` at once, so the photo is resident before the next read; a Wix Data read lags the
@@ -143,7 +144,7 @@ export interface FacadesState {
   mineError?: string;
   world: FacadeWorldItem[];
   worldPhase: FacadeWorldPhase;
-  /** The cover the current `world` answers (null = nothing asked yet / too high / not a member). */
+  /** The cover the current `world` answers (null = nothing asked yet / too high). */
   cover: string[] | null;
   /** False when a cell holds more than the page — "absent" must not be read as "removed". */
   complete: boolean;
@@ -180,6 +181,22 @@ export interface FacadesState {
    *  otherwise sit under the menu. */
   _setMenu(menu: FacadeMenu | null): void;
   closeMenu(): void;
+
+  /** F6 (2026-10-23) — the /m TAP PEEK: a tap on a saved-facade marker on the view-only tier
+   *  mirrors the row id + the apex pose the orchestrator computed (the T186 math — the eye at the
+   *  apex over the ground, the photo's heading / pitch, its H-FOV at the live aspect) so
+   *  `mobile/FacadePeek` can show the row and offer LOOK FROM HERE. Null = closed. */
+  peek: FacadePeek | null;
+  /** Orchestrator-only: open the peek (clears the hover / menu — /m has neither, but the fence
+   *  is cheap); null closes it. */
+  _setPeek(peek: FacadePeek | null): void;
+  closePeek(): void;
+}
+
+export interface FacadePeek {
+  id: string;
+  /** The FPV pose at the photo's apex (`useCameraStore.requestFpvJump` takes it as is). */
+  jump: { latDeg: number; lonDeg: number; eyeM: number; headingDeg: number; pitchDeg: number; fovDeg: number };
 }
 
 export interface FacadeHover {
@@ -236,7 +253,7 @@ async function runQuery(cover: string[], set: (p: Partial<FacadesState>) => void
   } catch (e) {
     if (seq !== querySeq) return;
     if ((e as { status?: number }).status === 401) {
-      // Signed out under us (a stale cookie swapped for a visitor's): no world, not an error.
+      // An older server still gating the public read (release skew — T190): no world, not an error.
       lastCover = null;
       set({ world: [], cover: null, worldPhase: "idle", complete: true });
       return;
@@ -288,14 +305,21 @@ export const useFacadesStore = create<FacadesState>((set, get) => ({
     if (get().menu !== null) set({ menu: null });
   },
 
-  reportViewport: (latDeg, lonDeg, altM, radiusM = PHOTO_PROJECT.coverRadiusM) => {
-    lastReport = { latDeg, lonDeg, altM, radiusM };
-    if (!isMember()) {
-      // C6: the world read is owner-only in v1 — nothing is asked while anonymous; the member
-      // subscription below re-kicks the last report on sign-in.
-      dropWorld(set, get);
+  peek: null,
+  _setPeek: (peek) => {
+    if (peek === null) {
+      if (get().peek !== null) set({ peek: null });
       return;
     }
+    set({ peek: { id: peek.id, jump: { ...peek.jump } }, hover: null, menu: null });
+  },
+  closePeek: () => {
+    if (get().peek !== null) set({ peek: null });
+  },
+
+  reportViewport: (latDeg, lonDeg, altM, radiusM = PHOTO_PROJECT.coverRadiusM) => {
+    lastReport = { latDeg, lonDeg, altM, radiusM };
+    // T190: no member gate — a visitor reads the world like a member.
     const planned = coverFor(lastReport);
     if (planned === null) {
       // Too high to care: drop the world (the markers unload) and forget the cover, so the
@@ -311,7 +335,7 @@ export const useFacadesStore = create<FacadesState>((set, get) => ({
     throttleTimer = setTimeout(() => {
       throttleTimer = undefined;
       const r = lastReport;
-      if (!r || !isMember()) return;
+      if (!r) return;
       const cover = coverFor(r);
       if (cover === null) return;
       const dueNow = nowMs() - lastFetchAtMs >= MODELS.repollMs;
@@ -320,7 +344,6 @@ export const useFacadesStore = create<FacadesState>((set, get) => ({
   },
 
   refresh: () => {
-    if (!isMember()) return;
     const cover = lastCover ?? (lastReport ? coverFor(lastReport) : null);
     if (!cover) return;
     clearTimeout(throttleTimer);
@@ -389,20 +412,17 @@ export const useFacadesStore = create<FacadesState>((set, get) => ({
   isMine: (id) => get().mine.some((m) => m.id === id),
 }));
 
-// The member seam: a sign-in re-runs the last viewport report (the world read was gated off) and
-// re-loads MINE if the panel asked while anonymous; a sign-out drops both at once (C6 — a
-// visitor holds no facade rows, not even the ones the previous member saw).
+// The member seam: a sign-in re-loads MINE if the panel asked while anonymous; a sign-out drops
+// MINE, the row under edit and the hover / menu (they may sit on an ex-own row) — and KEEPS the
+// world (T190: the world is public, a visitor sees the same rows the member saw).
 useMemberStore.subscribe((s, prev) => {
   if (s.phase === prev.phase) return;
   const st = useFacadesStore.getState();
   if (s.phase === "member") {
-    if (lastReport) st.reportViewport(lastReport.latDeg, lastReport.lonDeg, lastReport.altM, lastReport.radiusM);
     if (st.minePhase === "anonymous") void st.loadMine();
   } else if (s.phase === "anonymous") {
-    lastCover = null;
-    querySeq++;
     mineSeq++;
-    useFacadesStore.setState({ world: [], cover: null, worldPhase: "idle", complete: true, mine: [], minePhase: "anonymous", editingId: null, hover: null, menu: null });
+    useFacadesStore.setState({ mine: [], minePhase: "anonymous", editingId: null, hover: null, menu: null, peek: null });
   }
 });
 
@@ -427,6 +447,7 @@ export function _resetFacadesStore(): void {
     editingId: null,
     hover: null,
     menu: null,
+    peek: null,
   });
 }
 

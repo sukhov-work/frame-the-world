@@ -6,9 +6,9 @@
  *
  * F1 / F2 (owner order 2026-10-21, `rendering/PHOTO_PROJECTION_PLAN_2026-10-21.md` §1): the pose
  * is EDITED on the globe (a gizmo — move / rotate / scale, where SCALE = the H-FOV and never a
- * stretch) and SAVED as a private FacadePhotos row (`store/facadeSave`). C6 still holds: a facade
- * row is exact by nature (the pose IS the content) and PRIVATE by default — the v1 read returns
- * the member's own rows only (`lib/wix/facadeRecords.ts`).
+ * stretch) and SAVED as a FacadePhotos row (`store/facadeSave`). A saved row is PUBLIC (T190, owner
+ * 2026-10-22g): every visitor sees it on the buildings at its exact pose; only the owner edits or
+ * removes it (`lib/wix/facadeRecords.ts`).
  *
  * SEPARATE on purpose (owner rule: zero regression to the upload/pin flow): its own module-level
  * decode machinery, no temp-pin / pendingPlacement side effect, no `store/camera` import. The

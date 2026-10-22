@@ -208,6 +208,43 @@ describe("saveFacade — the happy path", () => {
     expect(residency.setEditing).toHaveBeenCalledWith("fac_1");
   });
 
+  it("T194: a 409 FILE_NOT_READY on the record POST is retried with the SAME body until the image settles; a stale descriptor gives up after the budget", async () => {
+    const { FACADE_SAVE_RETRY } = await import("../../src/store/facadeSave");
+    const prev = { ...FACADE_SAVE_RETRY };
+    FACADE_SAVE_RETRY.attempts = 3;
+    FACADE_SAVE_RETRY.delayMs = 1;
+    try {
+      const notReady = () => Object.assign(new Error("the display image is still being processed"), { code: "FILE_NOT_READY" });
+      media.postFacadeRecord.mockReset();
+      media.postFacadeRecord.mockRejectedValueOnce(notReady()).mockRejectedValueOnce(notReady()).mockResolvedValueOnce({ facadeId: "fac_1", facade: FACADE });
+      placeDraft();
+      await save().saveFacade();
+      expect(save().phase).toBe("saved");
+      expect(media.postFacadeRecord).toHaveBeenCalledTimes(3);
+      expect(media.postFacadeRecord.mock.calls[0][0]).toBe(media.postFacadeRecord.mock.calls[2][0]); // the same body, never re-uploaded
+      expect(media.uploadFacadeImage).toHaveBeenCalledTimes(2); // display + thumb once
+      // Never ready: the budget ends in the error the panel shows, with the code.
+      media.postFacadeRecord.mockReset();
+      media.postFacadeRecord.mockRejectedValue(notReady());
+      save().reset();
+      placeDraft();
+      await save().saveFacade();
+      expect(save().phase).toBe("error");
+      expect(save().errorCode).toBe("FILE_NOT_READY");
+      expect(media.postFacadeRecord).toHaveBeenCalledTimes(3);
+      // Any other failure is NOT retried.
+      media.postFacadeRecord.mockReset();
+      media.postFacadeRecord.mockRejectedValue(Object.assign(new Error("boom"), { code: "LIST_FAILED" }));
+      save().reset();
+      placeDraft();
+      await save().saveFacade();
+      expect(save().phase).toBe("error");
+      expect(media.postFacadeRecord).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.assign(FACADE_SAVE_RETRY, prev);
+    }
+  });
+
   it("a null title reaches the body as null and names the files after the file name", async () => {
     placeDraft();
     await save().saveFacade();

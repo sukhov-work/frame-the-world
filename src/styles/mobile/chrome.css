@@ -279,17 +279,12 @@
   gap: 8px;
 }
 
-/* LAYERS expands LEFT (owner 2026-08-19b): row-reverse keeps the DOM-first anchor chip
-   pinned bottom-right while the toggles pop out horizontally; wrap-reverse sends any
-   overflow into a short row ABOVE (never a horizontal scroll — the stack is
-   touch-action:none). */
-.m-layersrow {
-  display: flex;
-  flex-flow: row-reverse wrap-reverse;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  max-width: calc(100vw - 1.5rem);
+/* T191 (owner 2026-10-22g): LAYERS is ONE cell in the stack — the toggles live in the modal grid
+   appended at the end of this file (`.m-layers`); the 2026-08-19b row that expanded LEFT and
+   shifted the rails is gone. */
+.m-act--layers.is-open {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 .m-nav {
   display: inline-flex;
@@ -1356,4 +1351,179 @@ a.m-hit {
 .m-bsp-acts .m-act {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* ── T189 (owner 2026-10-22g): 🧭 MY LOC → the location-pin ICON cell (the camera panel's MY SPOT
+   glyph, `controls/PinGlyph`), no text — the words ride aria-label; LOCATING… = the glyph pulses.
+   The cell keeps `.m-act--icon`'s 44 px round geometry; only the glyph's ink is its own. ── */
+.m-act--myloc {
+  color: var(--color-text);
+}
+.m-act--myloc[disabled] {
+  opacity: 1; /* the pulse carries the busy state — a dimmed pulse reads as broken */
+}
+.m-myloc__icon {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+.m-myloc__pin {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+.m-myloc__dot {
+  fill: currentColor;
+}
+.m-act--myloc.is-busy .m-myloc__icon {
+  animation: m-myloc-pulse 1s ease-in-out infinite;
+}
+@keyframes m-myloc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-act--myloc.is-busy .m-myloc__icon {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ── F6 (2026-10-23): the saved-facade TAP PEEK row — the .m-peek seat above the time dock, a
+   thumb + title + pose line + ◎ LOOK (the FPV jump at the apex) + ✕. View-only: no edit verbs. ── */
+.m-fpeek {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0.45rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+.m-fpeek__thumb {
+  flex: none;
+  width: 2.4rem;
+  height: 1.8rem;
+  object-fit: cover;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}
+.m-fpeek__body {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.m-fpeek__title {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-fpeek__meta {
+  font-size: 0.56rem;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.m-fpeek__look,
+.m-fpeek__close {
+  flex: none;
+  min-height: 2rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  font: 600 0.58rem var(--font-mono);
+  letter-spacing: 0.12em;
+  color: var(--color-text);
+}
+.m-fpeek__look {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  color: var(--color-accent);
+}
+.m-fpeek__close {
+  min-width: 2rem;
+  padding: 0;
+  color: var(--color-text-secondary);
+}
+
+/* ── T191 (owner 2026-10-22g): the LAYERS modal — a scrim over everything (tap = close; it covers
+   the LAYERS cell too) + a blurred panel seated above the thumb rails holding a 3-column GRID of
+   icon cells (glyph + caption; ON = the accent fill). The fixed root carries NO filter (the S2
+   containing-block trap); the blur sits on the panel. Nothing in the chip stack moves. ── */
+.m-layers {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  touch-action: none;
+}
+.m-layers__scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--color-bg) 35%, transparent);
+  touch-action: none;
+}
+.m-layers__panel {
+  position: absolute;
+  right: calc(0.75rem + env(safe-area-inset-right, 0px));
+  bottom: calc(var(--m-altcol-bottom-base, 15.2rem) + env(safe-area-inset-bottom, 0px));
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.m-layers__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 4rem);
+  gap: 8px;
+}
+.m-layers__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 4rem;
+  height: 4rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: transparent;
+  font: 600 0.52rem var(--font-mono);
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}
+.m-layers__cell[disabled] {
+  opacity: 0.4;
+}
+.m-layers__cell.is-on {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+.m-layers__glyph {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .m-layers__panel {
+    animation: m-sheet-in 160ms ease-out;
+  }
 }

@@ -80,12 +80,20 @@ describe("the /m FPV rail (owner 2026-09-18)", () => {
     expect(render()).not.toContain("m-act--places");
   });
 
-  it("member outside FPV: the ▤ SAVED PLACES pill above MY LOC stays, and no icon cell renders", () => {
+  it("member outside FPV: the ▤ SAVED PLACES pill above MY LOC stays; the only icon cell is MY LOC's pin (T189)", () => {
     useMemberStore.setState({ phase: "member" });
     const html = render();
     const b = buttons(html);
     expect(b.some((x) => x.text === "▤ SAVED PLACES" && x.cls === "m-act")).toBe(true);
-    expect(html).not.toContain("m-act--icon");
+    // T189 (owner 2026-10-22g): MY LOC is the icon-only location-pin cell — the words ride
+    // aria-label, the cell holds no text; it is the ONLY icon cell outside FPV (no PLACES cell).
+    const myloc = b.find((x) => /m-act--myloc/.test(x.cls));
+    expect(myloc?.cls).toBe("m-act m-act--icon m-act--myloc");
+    expect(myloc?.text).toBe("");
+    expect((html.match(/m-act--icon/g) ?? []).length).toBe(1);
+    expect(html).toMatch(/aria-label="My location"/);
+    expect(html).toMatch(/<svg class="m-myloc__icon" viewBox="0 0 24 24" aria-hidden="true"/);
+    expect(html).not.toContain("MY LOC");
     expect(html).not.toContain("m-act--places");
     // …and the pill's gate names FPV explicitly — the two openers never coexist.
     expect(SRC).toMatch(/\{!tempFpv && memberPhase === "member" && onOpenPlaces && \(/);

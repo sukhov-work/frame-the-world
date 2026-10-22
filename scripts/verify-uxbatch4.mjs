@@ -210,14 +210,14 @@ check("/m: strip time chip gone", await m.evalJs(`!document.querySelector(".m-ch
 await m.shoot("uxb4-06-m-dock-clock");
 
 // 6 — LAYERS ▤ VECTOR
-await m.evalJs(`(() => { const b = [...document.querySelectorAll(".m-layersrow button")].find((x) => x.textContent.includes("LAYERS")); b?.click(); return !!b; })()`);
+await m.evalJs(`(() => { const b = document.querySelector(".m-act--layers"); b?.click(); return !!b; })()`);
 await sleep(400);
-const vecBtn = await m.evalJs(`(() => { const b = [...document.querySelectorAll(".m-layersrow button")].find((x) => x.textContent.includes("VECTOR")); if (!b) return false; b.click(); return true; })()`);
+const vecBtn = await m.evalJs(`(() => { const b = document.querySelector('.m-layers__cell[data-layer="vectors"]'); if (!b) return false; b.click(); return true; })()`);
 check("/m: LAYERS has ▤ VECTOR", vecBtn);
 await sleep(300);
 prefs = await readPrefs(m);
 check("/m: VECTOR toggle persisted", prefs.vectorsVisible === false, JSON.stringify(prefs.vectorsVisible));
-await m.evalJs(`[...document.querySelectorAll(".m-layersrow button")].find((x) => x.textContent.includes("VECTOR"))?.click()`);
+await m.evalJs(`document.querySelector('.m-layers__cell[data-layer="vectors"]')?.click()`);
 await m.shoot("uxb4-07-m-layers-vector");
 
 // 7 — TargetSheet FIND IN FRAME (moon peek → sheet)

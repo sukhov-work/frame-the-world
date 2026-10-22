@@ -18,8 +18,9 @@ import {
 import { useMemberStore } from "../../src/store/member";
 
 // F3 residency (T169 / T171, 2026-10-21): the facade WORLD store — the cover-driven, THROTTLED,
-// member-gated world read in route-sized chunks; MINE paged; the optimistic mirror with the
-// read-lag grace (newest-wins); the editing seam.
+// PUBLIC world read in route-sized chunks (T190, owner 2026-10-22g: no member gate — a visitor
+// reads the world like a member; the member-gated posture before it); MINE paged (member-only);
+// the optimistic mirror with the read-lag grace (newest-wins); the editing seam.
 
 const T0 = "2026-10-21T10:00:00.000Z";
 const T1 = "2026-10-21T10:05:00.000Z";
@@ -194,30 +195,39 @@ describe("store/facades", () => {
     expect(api.worldCalls.length).toBeGreaterThan(calls);
   });
 
-  it("C6: ANONYMOUS → no world call, no MINE call; a sign-in re-kicks the last report and MINE", async () => {
+  it("T190: ANONYMOUS → the world IS read (public), MINE is not; a sign-in loads MINE; a sign-out keeps the world and drops MINE", async () => {
     useMemberStore.setState({ phase: "anonymous", member: null });
     api.worldRows = [world("a")];
     api.minePages = [{ facades: [mine("a")], hasNext: false }];
     const s = useFacadesStore.getState();
     s.reportViewport(48.4647, 35.0462, 500);
     await tick();
-    expect(api.worldCalls.length).toBe(0);
-    expect(useFacadesStore.getState().cover).toBeNull();
+    expect(api.worldCalls.length).toBeGreaterThan(0);
+    expect(useFacadesStore.getState().cover).not.toBeNull();
+    expect(useFacadesStore.getState().world.map((r) => r.id)).toEqual(["a"]);
     await s.loadMine();
     expect(api.mineCalls.length).toBe(0);
     expect(useFacadesStore.getState().minePhase).toBe("anonymous");
-    // Sign-in: the member seam replays the report (through the throttle) and reloads MINE.
+    // Sign-in: the member seam reloads MINE (the world needs no replay — it was never gated).
+    const worldCallsAtSignIn = api.worldCalls.length;
     useMemberStore.setState({ phase: "member", member: { id: "m1", nickname: null, loginEmail: null } });
     await tick();
-    expect(api.worldCalls.length).toBeGreaterThan(0);
-    expect(useFacadesStore.getState().world.map((r) => r.id)).toEqual(["a"]);
+    expect(api.worldCalls.length).toBe(worldCallsAtSignIn);
     expect(api.mineCalls.length).toBe(1);
     expect(useFacadesStore.getState().minePhase).toBe("ready");
-    // Sign-out: both lists go at once.
+    useFacadesStore.getState().setEditing("a");
+    // Sign-out: MINE + the row under edit go; the world and its cover STAY (a visitor sees them).
     useMemberStore.setState({ phase: "anonymous", member: null });
-    expect(useFacadesStore.getState().world).toEqual([]);
+    expect(useFacadesStore.getState().world.map((r) => r.id)).toEqual(["a"]);
+    expect(useFacadesStore.getState().cover).not.toBeNull();
     expect(useFacadesStore.getState().mine).toEqual([]);
     expect(useFacadesStore.getState().minePhase).toBe("anonymous");
+    expect(useFacadesStore.getState().editingId).toBeNull();
+    // …and `refresh()` re-queries while anonymous.
+    const before = api.worldCalls.length;
+    s.refresh();
+    await tick();
+    expect(api.worldCalls.length).toBeGreaterThan(before); // one query = one call per cover chunk
   });
 
   it("a 401 on the world read is 'no world', never an error; a 5xx is", async () => {

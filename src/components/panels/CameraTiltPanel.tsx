@@ -587,7 +587,7 @@ function TexturesChip() {
       onClick={() => setOn(!on)}
       aria-pressed={on}
       aria-label={on ? "Hide the facade textures" : "Show the facade textures"}
-      data-tip="FACADE TEXTURES — your saved photos projected onto the buildings (desktop renders them)"
+      data-tip="FACADE TEXTURES — everyone's saved photos projected onto the buildings"
       data-tip-pos="left"
     >
       TEX

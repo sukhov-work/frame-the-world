@@ -46,12 +46,15 @@ ws.onmessage = (ev) => {
   if (msg.method === "Runtime.consoleAPICalled") {
     const type = msg.params?.type;
     const text = (msg.params.args ?? []).map((a) => a.value ?? a.description ?? "").join(" ");
-    if (type === "error") consoleErrors.push(text.slice(0, 240));
+    if (type === "error" && !/Content Script - Failed to load cookie bridge/.test(text)) consoleErrors.push(text.slice(0, 240));
     if ((type === "error" || type === "warning") && GL_RE.test(text)) glNoise.push(`console.${type}: ${text.slice(0, 240)}`);
   }
   if (msg.method === "Runtime.exceptionThrown") {
     const d = msg.params?.exceptionDetails;
-    consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
+    // The house profile's extensions throw in THEIR content scripts (a password manager's presence
+    // marker: "factory is not a function", 2026-10-23) — never the app's; keep the app's only.
+    const fromExtension = (d?.url ?? "").startsWith("chrome-extension://") || (d?.stackTrace?.callFrames ?? []).some((f) => (f.url ?? "").startsWith("chrome-extension://"));
+    if (!fromExtension) consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
   }
   if (msg.id && pending.has(msg.id)) {
     const { res, rej } = pending.get(msg.id);

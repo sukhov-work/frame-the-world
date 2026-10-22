@@ -25,6 +25,7 @@ import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { saveViewPref } from "../../lib/prefs";
 import { formatAltM } from "../../lib/format/readout";
 import { CONTROLS, MOBILE2D, ORCH } from "../globe/tuning";
+import { PinGlyph } from "../controls/PinGlyph";
 import "../../styles/mobile/chrome.css";
 
 export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => void }) {
@@ -135,9 +136,19 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
           ▤ SAVED PLACES
         </button>
       )}
+      {/* T189 (owner 2026-10-22g): MY LOC is an icon-only round cell wearing the location-pin
+          glyph (the camera panel's MY SPOT icon, the GL place markers' shape) — the words ride
+          `aria-label`; LOCATING… = the glyph pulses (`is-busy`). */}
       {!tempFpv && (
-        <button type="button" className="m-act" disabled={busy} onClick={locate}>
-          🧭 {busy ? "LOCATING…" : "MY LOC"}
+        <button
+          type="button"
+          className={`m-act m-act--icon m-act--myloc${busy ? " is-busy" : ""}`}
+          disabled={busy}
+          aria-busy={busy}
+          aria-label={busy ? "My location — locating…" : "My location"}
+          onClick={locate}
+        >
+          <PinGlyph className="m-myloc__icon" pinClassName="m-myloc__pin" dotClassName="m-myloc__dot" />
         </button>
       )}
       {!tempFpv && (
@@ -285,8 +296,33 @@ function NavChip() {
  *  (/m default OFF), and the aim RADAR master switch. Every toggle persists through the
  *  shared view-prefs blob; the expand state itself is session-local. Expands LEFT (owner
  *  2026-08-19b): the anchor chip is DOM-first inside a row-reverse row so it never moves. */
+/** The LAYERS grid's cells (T191, owner 2026-10-22g) — one per layer / setting, in this order; the
+ *  fence reads it. The glyph + the caption are the cell; the store field is the truth. */
+export const LAYER_CELLS = Object.freeze([
+  { key: "buildings3d", glyph: "▦", cap: "3D" },
+  { key: "places", glyph: "◎", cap: "PLACES" },
+  { key: "pins", glyph: "⌖", cap: "PINS" },
+  { key: "radar", glyph: "∠", cap: "RADAR" },
+  { key: "vectors", glyph: "▤", cap: "VECTOR" },
+  { key: "textures", glyph: "▣", cap: "TEXTURES" },
+] as const);
+export type LayerCellKey = (typeof LAYER_CELLS)[number]["key"];
+
+/**
+ * T191 (owner 2026-10-22g: "layers became bloated there when you click — lots of layer buttons
+ * appear on the same UI and shift other buttons; make them appear as a nice overlay
+ * semi-transparent modal with a grid of icons (togglable) for each corresponding layer / setting").
+ * The ⊞ LAYERS cell is the one chip in the stack (nothing shifts); open = a portal to <body>: a
+ * scrim (tap = close — it covers the LAYERS cell too, so the cell "again" closes as the owner
+ * expects) + a blurred panel seated just above the rails with a 3-column GRID of icon cells,
+ * ON = the accent fill. The SAME store writes as the row before it (PINS persists at the call
+ * site — the FPV declutter shares the pref). Closed on `onClick`, never `onPointerDown`: the
+ * Sheet's pointerdown close lets the trailing click retarget to whatever is underneath (the
+ * MapModeChip's documented ghost) — here that would re-open the grid. No Escape key on glass; the
+ * desktop twin of this island is the camera panel's chips, so the key is a courtesy only.
+ */
 function LayersChip() {
-  const [expanded, setExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
   const mapMode = useCameraStore((s) => s.mapMode);
   const buildings3d = useCameraStore((s) => s.buildings3d);
   const setBuildings3d = useCameraStore((s) => s.setBuildings3d);
@@ -300,79 +336,76 @@ function LayersChip() {
   const setVectorsVisible = useCameraStore((s) => s.setVectorsVisible);
   const texturesVisible = useCameraStore((s) => s.texturesVisible);
   const setTexturesVisible = useCameraStore((s) => s.setTexturesVisible);
-  const toggleCls = (on: boolean) => (on ? "m-act m-act--accent" : "m-act m-act--quiet");
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  const state: Record<LayerCellKey, { on: boolean; disabled?: boolean; toggle: () => void }> = {
+    // 2D has no buildings (U1) — the cell stays visible but stands down.
+    buildings3d: { on: buildings3d, disabled: mapMode === "2d", toggle: () => setBuildings3d(!buildings3d) },
+    places: { on: placesOn, toggle: () => setPlacesOn(!placesOn) },
+    // Persist at the call site, never in the setter — the FPV declutter shares it.
+    pins: {
+      on: pinsVisible,
+      toggle: () => {
+        saveViewPref("pinsVisible", !pinsVisible);
+        setPinsVisible(!pinsVisible);
+      },
+    },
+    radar: { on: aimVisible, toggle: () => setAimVisible(!aimVisible) },
+    vectors: { on: vectorsVisible, toggle: () => setVectorsVisible(!vectorsVisible) },
+    // T182 (owner 2026-10-22): the desktop TEX chip's twin — the same persisted pref. LIVE on the
+    // phone since F6 (2026-10-23): the engine projects every member's textures on /m under the
+    // lean tune (`PHOTO_PROJECT_LEAN`), view-only.
+    textures: { on: texturesVisible, toggle: () => setTexturesVisible(!texturesVisible) },
+  };
   return (
-    <div className="m-layersrow">
+    <>
       <button
         type="button"
-        className="m-act"
-        aria-expanded={expanded}
-        onClick={() => setExpanded(!expanded)}
+        className={`m-act m-act--layers${open ? " is-open" : ""}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
       >
         ⊞ LAYERS
       </button>
-      {expanded && (
-        <>
-          {/* 2D has no buildings (U1) — the chip stays visible but stands down. */}
-          <button
-            type="button"
-            className={toggleCls(buildings3d)}
-            aria-pressed={buildings3d}
-            disabled={mapMode === "2d"}
-            onClick={() => setBuildings3d(!buildings3d)}
-          >
-            ▦ 3D DETAIL
-          </button>
-          <button
-            type="button"
-            className={toggleCls(placesOn)}
-            aria-pressed={placesOn}
-            onClick={() => setPlacesOn(!placesOn)}
-          >
-            ◎ MY PLACES
-          </button>
-          {/* Persist at the call site, never in the setter — the FPV declutter shares it. */}
-          <button
-            type="button"
-            className={toggleCls(pinsVisible)}
-            aria-pressed={pinsVisible}
-            onClick={() => {
-              saveViewPref("pinsVisible", !pinsVisible);
-              setPinsVisible(!pinsVisible);
-            }}
-          >
-            ⌖ PHOTO PINS
-          </button>
-          <button
-            type="button"
-            className={toggleCls(aimVisible)}
-            aria-pressed={aimVisible}
-            onClick={() => setAimVisible(!aimVisible)}
-          >
-            ∠ RADAR
-          </button>
-          <button
-            type="button"
-            className={toggleCls(vectorsVisible)}
-            aria-pressed={vectorsVisible}
-            onClick={() => setVectorsVisible(!vectorsVisible)}
-          >
-            ▤ VECTOR
-          </button>
-          {/* T182 (owner 2026-10-22): the desktop TEX chip's twin — the same persisted pref. PRESENT
-              BUT INERT on the phone (owner ruling 2026-10-22c): the engine projects no facade
-              photos on /m until F6 lands with a farm-measured budget. */}
-          <button
-            type="button"
-            className={toggleCls(texturesVisible)}
-            aria-pressed={texturesVisible}
-            onClick={() => setTexturesVisible(!texturesVisible)}
-          >
-            ▣ TEXTURES
-          </button>
-        </>
-      )}
-    </div>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="m-layers" role="presentation" data-layers-modal>
+            <div className="m-layers__scrim" onClick={() => setOpen(false)} aria-hidden="true" />
+            <section className="m-layers__panel" role="dialog" aria-label="Layers">
+              <div className="m-layers__grid">
+                {LAYER_CELLS.map((c) => {
+                  const st = state[c.key];
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      className={`m-layers__cell${st.on ? " is-on" : ""}`}
+                      aria-pressed={st.on}
+                      disabled={st.disabled}
+                      data-layer={c.key}
+                      onClick={st.toggle}
+                    >
+                      <span className="m-layers__glyph" aria-hidden="true">
+                        {c.glyph}
+                      </span>
+                      <span className="m-layers__cap">{c.cap}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 

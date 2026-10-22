@@ -215,13 +215,13 @@ const COLLECTIONS = [
     // these numbers. JSON-IN-TEXT: `exifPose`, `targetFeatureIds` and `alignment` are serialized
     // JSON in TEXT columns — this provisioner speaks TEXT / NUMBER / BOOLEAN only, and the parser
     // (`src/lib/wix/facadeRecords.ts`) is their size rail (≤ 8 KB / ≤ 16 KB). ADMIN everything — all
-    // access through the elevated /api/facades (the owner's list + the MEMBER-GATED world read on
-    // `gh5`, the UserModels `hasSome` precedent; POST / PATCH / DELETE owner-gated). `displayUrl` /
+    // access through the elevated /api/facades (the owner's list + the PUBLIC world read on
+    // `gh5` — T190, the UserModels `hasSome` precedent; POST / PATCH / DELETE owner-gated). `displayUrl` /
     // `thumbUrl` are copied SERVER-side off the verified IMAGE descriptors (the UserModels posture).
     // C6: a projected facade photo is EXACT by nature — the pose IS the content, so reduced precision
-    // cannot apply. Rows are PRIVATE by default (`isPublic` false, `moderation` "PRIVATE", both
-    // stamped server-side, never body-driven); the v1 world read returns the calling member's OWN
-    // rows only. Any public tier needs explicit consent + the moderation gate — never a flag flip.
+    // cannot apply. `isPublic` / `moderation` are stamped server-side (never body-driven) and NOT
+    // consulted by the world read since T190 (owner 2026-10-22g): every visitor sees every row;
+    // REMOVED (set by hand) is the one withheld state.
     // `apexAltM` is the rendered apex height above the ellipsoid at save (a resident facade rebuilds
     // its frustum from it with no terrain lookup); `altitudeM` keeps the editor's slider / EXIF value.
     id: "FacadePhotos",

@@ -51,12 +51,15 @@ ws.onmessage = (ev) => {
   if (msg.method === "Runtime.consoleAPICalled") {
     const type = msg.params?.type;
     const text = (msg.params.args ?? []).map((a) => a.value ?? a.description ?? "").join(" ");
-    if (type === "error") consoleErrors.push(text.slice(0, 240));
+    if (type === "error" && !/Content Script - Failed to load cookie bridge/.test(text)) consoleErrors.push(text.slice(0, 240));
     if ((type === "error" || type === "warning") && GL_RE.test(text)) glNoise.push(`console.${type}: ${text.slice(0, 240)}`);
   }
   if (msg.method === "Runtime.exceptionThrown") {
     const d = msg.params?.exceptionDetails;
-    consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
+    // The house profile's extensions throw in THEIR content scripts (a password manager's presence
+    // marker: "factory is not a function", 2026-10-23) — never the app's; keep the app's only.
+    const fromExtension = (d?.url ?? "").startsWith("chrome-extension://") || (d?.stackTrace?.callFrames ?? []).some((f) => (f.url ?? "").startsWith("chrome-extension://"));
+    if (!fromExtension) consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
   }
   if (msg.id && pending.has(msg.id)) {
     const { res, rej } = pending.get(msg.id);
@@ -294,6 +297,35 @@ try {
     await evalJs(`document.querySelector('[data-facade-chip] .bec-op[data-op="none"]').click(), true`);
     const off = await waitFor(`(() => { const g = ${GZ}; return ${FS}.gizmoOp === "none" && !!g && g.attached === false; })()`, 1500, 50);
     if (!off.ok) fails.push("OFF did not detach the gizmo");
+    // T188 (owner 2026-10-22g, "same as with meshes"): the G / R / S HOTKEYS switch the op (the key
+    // again → OFF), the key letters ride the tabs, and the chip prints ONE ROW PER OP (value · was).
+    const key = (code) => evalJs(`window.dispatchEvent(new KeyboardEvent("keydown", { code: ${JSON.stringify(code)}, key: ${JSON.stringify(code.slice(3).toLowerCase())}, bubbles: true })), true`);
+    for (const [code, op] of [["KeyG", "move"], ["KeyR", "rotate"], ["KeyS", "scale"]]) {
+      await key(code);
+      const w = await waitFor(`(() => { const g = ${GZ}; return ${FS}.gizmoOp === "${op}" && !!g && g.attached === true && g.op === "${op}"; })()`, 1500, 50);
+      if (!w.ok) fails.push(`hotkey ${code}: store ${await evalJs(`${FS}.gizmoOp`)}`);
+    }
+    await key("KeyS"); // the same key again → OFF
+    const offKey = await waitFor(`(() => { const g = ${GZ}; return ${FS}.gizmoOp === "none" && !!g && g.attached === false; })()`, 1500, 50);
+    if (!offKey.ok) fails.push("the second S did not switch the op OFF");
+    const shape = await evalJs(`(() => { const c = document.querySelector("[data-facade-chip]"); return { kbd: [...c.querySelectorAll(".bec-op kbd")].map((k) => k.textContent), rows: [...c.querySelectorAll(".bec-row")].map((r) => ({ op: r.dataset.op, v: r.querySelector(".bec-v")?.textContent, was: r.querySelector(".bec-was")?.textContent, revert: !!r.querySelector("button.bec-revert") })) }; })()`);
+    if (JSON.stringify(shape.kbd) !== JSON.stringify(["G", "R", "S"])) fails.push(`kbd ${JSON.stringify(shape.kbd)}`);
+    if (shape.rows.map((r) => r.op).join("/") !== "move/rotate/scale") fails.push(`rows ${JSON.stringify(shape.rows.map((r) => r.op))}`);
+    if (!shape.rows.every((r) => r.v && r.was && !r.revert)) fails.push(`rows before any edit ${JSON.stringify(shape.rows)}`);
+    // The ↺ per op: an H-FOV edit lights SCALE's row, its ↺ puts the EXIF H-FOV back as ONE journal entry.
+    await evalJs(`${FS}.setHFovDeg(92.4), true`);
+    const lit = await waitFor(`!!document.querySelector('[data-facade-chip] .bec-row[data-op="scale"].is-edited button.bec-revert')`, 1500, 50);
+    if (!lit.ok) fails.push("SCALE's row did not light / show ↺ after an H-FOV edit");
+    const nRev0 = await evalJs("window.__editJournal.entries.length");
+    await evalJs(`document.querySelector('[data-facade-chip] .bec-row[data-op="scale"] button.bec-revert')?.click(), true`);
+    const reverted = await waitFor(`${FS}.hFovDeg === undefined && window.__editJournal.entries.length === ${nRev0} + 1 && !document.querySelector('[data-facade-chip] .bec-row[data-op="scale"].is-edited')`, 1500, 50);
+    if (!reverted.ok) fails.push(`↺ scale: hFov ${await evalJs(`${FS}.hFovDeg`)} journal ${await evalJs("window.__editJournal.entries.length")} (want ${nRev0 + 1})`);
+    await evalJs(`document.querySelector('[data-facade-chip] [data-act="undo"]')?.click(), true`); // UNDO the revert → the edit is back
+    const undone = await waitFor(`${FS}.hFovDeg === 92.4`, 1500, 50);
+    if (!undone.ok) fails.push("UNDO after the ↺ did not restore the edit");
+    await evalJs(`${FS}.setHFovDeg(undefined), true`);
+    await evalJs(`window.__editJournal.entries.length = 0, true`); // leave the journal as the drag leg below expects (empty foot)
+    await ticks(2);
     // UNDO + DROP SESSION through the chip: a gizmo MOVE drag journals one entry (a nudge does not —
     // pre-existing), the foot shows UNDO + DROP SESSION, UNDO restores the placement exactly.
     await cutTo(`(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, -55).addScaledVector(b.up, 30).addScaledVector(b.right, 20); })()`, `(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, 10); })()`);
@@ -366,22 +398,24 @@ try {
     await ticks(14);
     const fb = await facades();
     if (!fb.resident.includes(rowId)) fails.push(`(b) turned 180°: resident ${JSON.stringify(fb.resident)} — the slot thrashed`);
-    // (c) 1,700 m behind the apex looking at it: inside the fade band (2,000 × 0.65 = 1,300 → 2,000) → 0 < fade < 1.
-    await cutTo(`(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, -1700).addScaledVector(b.up, 300); })()`, `(() => { const b = ${BASIS}; return b.apex.clone(); })()`);
+    // (c) 2,500 m behind the apex looking at it: inside the fade band — T187 (owner 2026-10-22h):
+    // 3,000 × (1 − 1/3) = the fade BEGINS at 2,000 m and ends at 3,000 m (1,300 → 2,000 before) → 0 < fade < 1.
+    await cutTo(`(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, -2500).addScaledVector(b.up, 350); })()`, `(() => { const b = ${BASIS}; return b.apex.clone(); })()`);
     const wc = await waitFor(`(() => { const s = ${SNAP}; const x = s.slots.find((x) => x.id === ${JSON.stringify(rowId)}); return !!x && x.fade > 0 && x.fade < 1 && x.strength < 1 ? x.fade : 0; })()`, 6000, 100);
     const sc = await snapshot();
     const slotC = (sc.slots ?? []).find((x) => x.id === rowId);
-    if (!wc.ok) fails.push(`(c) 1.7 km: fade ${slotC?.fade} strength ${slotC?.strength} resident ${JSON.stringify((await facades()).resident)} (want 0 < fade < 1)`);
+    if (!wc.ok) fails.push(`(c) 2.5 km: fade ${slotC?.fade} strength ${slotC?.strength} resident ${JSON.stringify((await facades()).resident)} (want 0 < fade < 1 — the T187 band 2,000 → 3,000 m)`);
     await shot("05c-faded.jpeg");
     // (d) 2,400 m behind looking at it: past the band (2,000 + 60) → released.
-    await cutTo(`(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, -2400).addScaledVector(b.up, 400); })()`, `(() => { const b = ${BASIS}; return b.apex.clone(); })()`);
+    // (d) 3,500 m: past the range + the swap band (3,000 + 60) → released.
+    await cutTo(`(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, -3500).addScaledVector(b.up, 450); })()`, `(() => { const b = ${BASIS}; return b.apex.clone(); })()`);
     const wd = await waitFor(`(() => { const f = ${FAC}; return !f.resident.includes(${JSON.stringify(rowId)}) && !f.occupied.includes(${JSON.stringify(rowId)}); })()`, 6000, 100);
-    if (!wd.ok) fails.push(`(d) 2.4 km: still resident ${JSON.stringify((await facades()).resident)}`);
+    if (!wd.ok) fails.push(`(d) 3.5 km: still resident ${JSON.stringify((await facades()).resident)}`);
     // (e) back inside → re-acquired (the texture reloads from the blob).
     await cutTo(`(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, 60).addScaledVector(b.up, 2); })()`, `(() => { const b = ${BASIS}; return b.apex.clone().addScaledVector(b.fwd, 200); })()`);
     const we = await waitFor(`(() => { const f = ${FAC}; const s = ${SNAP}; return f.resident.includes(${JSON.stringify(rowId)}) && s.slots.some((x) => x.id === ${JSON.stringify(rowId)} && x.on); })()`, 8000, 100);
     if (!we.ok) fails.push(`(e) back inside: not re-acquired (${JSON.stringify((await facades()).resident)})`);
-    return { pass: fails.length === 0, detail: fmtFails(fails, `inside+apex behind: resident · 180°: kept · 1.7 km: fade ${r2(slotC?.fade)} strength ${r2(slotC?.strength)} · 2.4 km: released · back: re-acquired`) };
+    return { pass: fails.length === 0, detail: fmtFails(fails, `inside+apex behind: resident · 180°: kept · 2.5 km: fade ${r2(slotC?.fade)} strength ${r2(slotC?.strength)} · 3.5 km: released · back: re-acquired`) };
   });
 
   // ═══ 6 · T178 + T183 HOVER + THE CONTEXT MENU ═════════════════════════════════════════════════

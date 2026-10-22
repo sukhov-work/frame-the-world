@@ -182,20 +182,26 @@ describe("MapWindow — the ◉ RE-CENTRE seat (owner 2026-08-22 item 2)", () =>
     expect(tsx).toMatch(/mw-recenter[\s\S]{0,40}panned[\s\S]{0,40}is-panned/);
   });
 
-  it("wears a TARGET glyph drawn inside the SAME 2.1rem circle (owner 2026-09-30 — the icon changed, the button did not)", () => {
+  it("wears the LOCATION-PIN glyph drawn inside the SAME 2.1rem circle (owner 2026-09-30 target → 2026-10-22g pin, T189 — the icon changed, the button did not)", () => {
     const btn = ruleBody(mwCss, ".mw-recenter");
     // The shape and size the owner asked to keep: the numbers of 2026-08-22, untouched.
     expect(decl(btn, "width")).toBe("2.1rem");
     expect(decl(btn, "height")).toBe("2.1rem");
     expect(decl(btn, "padding")).toBe("0");
     // The glyph is an inline SVG in currentColor (so the muted / accent-lit states colour it and
-    // no font decides how it looks) — never the ◉ character again.
+    // no font decides how it looks) — never the ◉ character again. T189: the SAME pin the camera
+    // panel's MY SPOT cell, the /m MY LOC cell and the GL place markers wear (`controls/PinGlyph`).
     const jsx = tsx.slice(tsx.indexOf('className={`mw-btn mw-recenter'), tsx.indexOf("</button>", tsx.indexOf('className={`mw-btn mw-recenter')));
     expect(jsx).toMatch(/<svg className="mw-recenter__icon" viewBox="0 0 24 24" aria-hidden="true"/);
-    expect(jsx).toMatch(/<circle cx="12" cy="12" r="[\d.]+" \/>/); // the ring
-    expect(jsx).toMatch(/<circle className="mw-recenter__dot" cx="12" cy="12"/); // the centre
-    expect(jsx).toMatch(/<path d="M12 [\d.]+v[\d.]+M12 [\d.]+v[\d.]+M[\d.]+ 12h[\d.]+M[\d.]+ 12h[\d.]+" \/>/); // four ticks
+    const pinPath = /export const PIN_GLYPH_PATH = "([^"]+)";/.exec(read("src/components/controls/PinGlyph.tsx"))?.[1];
+    expect(pinPath).toMatch(/^M12 2\.5a6\.5 6\.5 0 0 0-6\.5 6\.5c/);
+    expect(jsx).toContain(`<path d="${pinPath}" />`); // the pin body
+    expect(jsx).toMatch(/<circle className="mw-recenter__dot" cx="12" cy="9" r="2\.3" \/>/); // the dot in the head
+    expect(jsx).not.toMatch(/<circle cx="12" cy="12"/); // no ring
+    expect(jsx).not.toMatch(/<path d="M12 [\d.]+v/); // no ticks
     expect(jsx).not.toContain("◉");
+    // The camera panel's MY SPOT cell carries the identical path (one glyph, three seats).
+    expect(read("src/components/panels/CameraTiltPanel.tsx")).toContain(`d="${pinPath}"`);
     const icon = ruleBody(mwCss, ".mw-recenter__icon");
     expect(decl(icon, "stroke")).toBe("currentColor");
     expect(decl(icon, "fill")).toBe("none");

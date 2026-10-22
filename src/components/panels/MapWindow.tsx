@@ -35,7 +35,17 @@ import { AIMCONES, CONTROLS, FOCALCONE, TILESETS } from "../globe/tuning";
 import { scaleBarFor, type ScaleBar } from "../../lib/format/scaleBar";
 
 import { chartRayReachPx, drawRadarCanvas } from "./radarCanvas";
+import { PIN_GLYPH_DOT, PIN_GLYPH_PATH } from "../controls/PinGlyph";
 import "../../styles/map-window.css";
+
+/** T189: the location-pin glyph as a Path2D for the 2D map's place layer — built once, lazily
+ *  (Path2D is a browser global; this module is read as text by the chrome tests). */
+const PIN_TIP_Y = 21.5; // the pin's point on the glyph's 24-grid (`PIN_GLYPH_PATH`)
+let _placePin: Path2D | null | undefined;
+const placePinPath = (): Path2D | null => {
+  if (_placePin === undefined) _placePin = typeof Path2D === "undefined" ? null : new Path2D(PIN_GLYPH_PATH);
+  return _placePin;
+};
 
 /**
  * MapWindow (UPLIFT U3, owner point 2) — the fullscreen north-up photo-tile map, opened by
@@ -538,23 +548,30 @@ export default function MapWindow() {
         }
       }
 
-      // MY PLACES markers (LAYERS batch, owner 2026-08-19) — the member's saved views: the
-      // temp-pin drawing at the lavender pin hue, so "yours but dormant" reads at a glance.
+      // MY PLACES markers (LAYERS batch, owner 2026-08-19) — the member's saved views at the
+      // lavender pin hue, so "yours but dormant" reads at a glance. T189 (owner 2026-10-22g): the
+      // LOCATION-PIN glyph the GL markers and the re-centre button wear (`PIN_GLYPH_PATH`), its
+      // tip ON the place, ~18 px tall at dpr 1 (the ring-dot before it was 10 px across).
       const placesNow = usePlacesMapStore.getState();
       if (placesNow.onMap && placesNow.places.length > 0) {
+        const pin = placePinPath();
         ctx.strokeStyle = tokens.pinLavender;
         ctx.fillStyle = tokens.pinLavender;
+        const k = 0.95 * dpr; // the 24-grid → px
         for (const p of placesNow.places) {
           const [px, py] = toPx(p.latDeg, p.lonDeg);
           if (px < -20 || py < -20 || px > w + 20 || py > h + 20) continue;
           ctx.globalAlpha = 0.85;
-          ctx.lineWidth = 1.5 * dpr;
+          ctx.save();
+          ctx.translate(px - PIN_GLYPH_DOT.cx * k, py - PIN_TIP_Y * k);
+          ctx.scale(k, k);
+          ctx.lineWidth = (1.5 * dpr) / k;
+          ctx.lineJoin = "round";
+          if (pin) ctx.stroke(pin);
           ctx.beginPath();
-          ctx.arc(px, py, 5 * dpr, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(px, py, 1.8 * dpr, 0, Math.PI * 2);
+          ctx.arc(PIN_GLYPH_DOT.cx, PIN_GLYPH_DOT.cy, PIN_GLYPH_DOT.r, 0, Math.PI * 2);
           ctx.fill();
+          ctx.restore();
         }
         ctx.globalAlpha = 1;
       }
@@ -1021,9 +1038,11 @@ export default function MapWindow() {
           below the top row (on /m it clears the 32vw PiP that owns that rung — see the CSS).
           ALWAYS visible, muted while following and accent-lit once you've panned away, so it
           advertises the way back — the only path out of the now-permanent manual override.
-          Owner 2026-09-30: the glyph is a TARGET (ring · centre dot · four ticks — the "locate
-          me" mark every map uses) instead of ◉, which read as a record dot; the button's shape
-          and size are untouched (the icon is drawn inside the same 2.1rem circle). */}
+          Owner 2026-09-30: the glyph was a TARGET (ring · centre dot · four ticks) instead of ◉,
+          which read as a record dot. T189 (owner 2026-10-22g): the SAME location-pin glyph the
+          camera panel's MY SPOT, the /m MY LOC cell and the GL place markers wear
+          (`controls/PinGlyph` — the path inlined here so the icon stays a currentColor SVG); the
+          button's shape and size are untouched (drawn inside the same 2.1rem circle). */}
       <button
         type="button"
         className={`mw-btn mw-recenter${panned ? " is-panned" : ""}`}
@@ -1032,9 +1051,8 @@ export default function MapWindow() {
         onClick={() => recenterRef.current()}
       >
         <svg className="mw-recenter__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <circle cx="12" cy="12" r="6.25" />
-          <circle className="mw-recenter__dot" cx="12" cy="12" r="2.1" />
-          <path d="M12 1.75v4M12 18.25v4M1.75 12h4M18.25 12h4" />
+          <path d="M12 2.5a6.5 6.5 0 0 0-6.5 6.5c0 4.6 6.5 12.5 6.5 12.5s6.5-7.9 6.5-12.5A6.5 6.5 0 0 0 12 2.5z" />
+          <circle className="mw-recenter__dot" cx="12" cy="9" r="2.3" />
         </svg>
       </button>
     </div>

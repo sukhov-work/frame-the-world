@@ -179,8 +179,17 @@ export interface BuildingMaterialSet {
 }
 
 export function createBuildingMaterials(
-  opts: { edgeColor?: string; edgeOpacity?: number } = {},
+  opts: {
+    edgeColor?: string;
+    edgeOpacity?: number;
+    /** F6 (2026-10-23): the projector slots K compiled into THIS material set — the desktop tier
+     *  compiles `PHOTO_PROJECT.slots` (the default), the lean / mobile tier its own smaller K
+     *  (`PHOTO_PROJECT_LEAN.slots`): fewer unrolled blocks, fewer texture units. Both tilesets
+     *  of one page must compile the SAME K (they share the projector feed). */
+    photoSlots?: number;
+  } = {},
 ): BuildingMaterialSet {
+  const K = Math.max(1, Math.floor(opts.photoSlots ?? PHOTO_PROJECT_SLOTS));
   const fillMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(tokens.surface), // dark slate mass (design building front #0F151D–#12161C)
     roughness: BUILDINGS.roughness,
@@ -195,6 +204,9 @@ export function createBuildingMaterials(
   fillMat.polygonOffset = true;
   fillMat.polygonOffsetFactor = BUILDINGS.polygonOffset;
   fillMat.polygonOffsetUnits = BUILDINGS.polygonOffset;
+  // F6: the program cache key sees `onBeforeCompile.toString()` — never a closure value — so two
+  // material sets compiled at different K would share one program; the key names K explicitly.
+  fillMat.customProgramCacheKey = () => `ftwProjK${K}`;
 
   const uniforms: BuildingMaterialUniforms = {
     // FPV ghost curve (S6): uGhostK gates the whole effect (0 in the normal look — the injected
@@ -241,13 +253,13 @@ export function createBuildingMaterials(
     // and the <opaque_fragment> mix (ftwProjOwn stays 0.0 → mix(x, 0, 0) = x, byte-identical).
     // The per-slot arrays are allocated to exactly K once (see the holder doc).
     uFtwProjOn: { value: 0 },
-    uFtwProjFromView: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => new THREE.Matrix4()) },
-    uFtwProjApexV: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => new THREE.Vector3()) },
+    uFtwProjFromView: { value: Array.from({ length: K }, () => new THREE.Matrix4()) },
+    uFtwProjApexV: { value: Array.from({ length: K }, () => new THREE.Vector3()) },
     uFtwProjPhotoArr: { value: null },
-    uFtwProjDepth: { value: Array.from({ length: PHOTO_PROJECT_SLOTS }, () => null) },
+    uFtwProjDepth: { value: Array.from({ length: K }, () => null) },
     uFtwProjSlot: {
       value: Array.from(
-        { length: PHOTO_PROJECT_SLOTS },
+        { length: K },
         () => new THREE.Vector4(PHOTO_PROJECT.strength, 0, PHOTO_PROJECT.rangeM, PHOTO_PROJECT.ownLight),
       ),
     },
@@ -284,7 +296,7 @@ export function createBuildingMaterials(
     let n = 0;
     if (f) {
       for (const s of f.slots) {
-        if (n >= PHOTO_PROJECT_SLOTS) break;
+        if (n >= K) break;
         if (!s.on || s.layer < 0 || !s.depth) continue;
         // float64 on the CPU: the ECEF-sized translations cancel BEFORE the float32 cast — the
         // uploaded matrix carries the camera→apex offset (metres to kilometres), never 6.4e6 m.
@@ -299,7 +311,7 @@ export function createBuildingMaterials(
       uniforms.uFtwProjDepthP.value.copy(f.depthP);
       uniforms.uFtwProjFacing.value.copy(f.facing);
     }
-    for (let j = n; j < PHOTO_PROJECT_SLOTS; j++) depths[j] = null;
+    for (let j = n; j < K; j++) depths[j] = null;
     const photos = n > 0 && f ? f.photos : null;
     if (uniforms.uFtwProjPhotoArr.value !== photos) uniforms.uFtwProjPhotoArr.value = photos;
     if (uniforms.uFtwProjOn.value !== n) uniforms.uFtwProjOn.value = n;
@@ -398,11 +410,11 @@ export function createBuildingMaterials(
         uniform vec3 uFtwSunW;
         uniform vec3 uFtwDayFill;
         uniform float uFtwProjOn;
-        uniform mat4 uFtwProjFromView[ ${PHOTO_PROJECT_SLOTS} ];
-        uniform vec3 uFtwProjApexV[ ${PHOTO_PROJECT_SLOTS} ];
+        uniform mat4 uFtwProjFromView[ ${K} ];
+        uniform vec3 uFtwProjApexV[ ${K} ];
         uniform highp sampler2DArray uFtwProjPhotoArr;
-        uniform highp sampler2D uFtwProjDepth[ ${PHOTO_PROJECT_SLOTS} ];
-        uniform vec4 uFtwProjSlot[ ${PHOTO_PROJECT_SLOTS} ];
+        uniform highp sampler2D uFtwProjDepth[ ${K} ];
+        uniform vec4 uFtwProjSlot[ ${K} ];
         uniform vec4 uFtwProjK;
         uniform vec4 uFtwProjDepthP;
         uniform vec4 uFtwProjFacing;
@@ -542,7 +554,7 @@ export function createBuildingMaterials(
           vec3 ftwPVdx = dFdx(ftwPV);
           vec3 ftwPVdy = dFdy(ftwPV);
           #pragma unroll_loop_start
-          for ( int i = 0; i < ${PHOTO_PROJECT_SLOTS}; i ++ ) {
+          for ( int i = 0; i < ${K}; i ++ ) {
             if (float( UNROLLED_LOOP_INDEX ) < uFtwProjOn - 0.5 && ftwProjK < 0.999) {
               vec4 ftwC = uFtwProjFromView[ i ] * vec4(ftwPV, 1.0);
               vec3 ftwP = ftwC.xyz / max(ftwC.w, 1e-4);

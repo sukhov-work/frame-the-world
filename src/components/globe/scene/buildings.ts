@@ -170,6 +170,9 @@ export function attachBuildings(
     /** T106 OSM (2026-09-07f): the per-frame ms budget for the deferred crease edges — the
      *  orchestrator keys it on `lean` (`BUILDINGS.loadBudgetMs` / `loadBudgetMsLean`). */
     loadBudgetMs?: number;
+    /** F6 (2026-10-23): the projector slots K compiled into the fill material (`createBuildingMaterials`);
+     *  absent = `PHOTO_PROJECT.slots`. The enriched set must compile the same K. */
+    photoSlots?: number;
   },
 ): BuildingsHandle {
   // S7d trial flag: Re:Earth Overture buildings (hosted 3D Tiles 1.1, meshopt-compressed glTF)
@@ -264,7 +267,7 @@ export function attachBuildings(
   // both tilesets use (scene/buildingMaterial.ts). This module owns the OSM instance; the uniform
   // holders are persistent (onBeforeCompile re-binds them across the transparent-toggle recompile,
   // so state survives).
-  const materialSet = createBuildingMaterials();
+  const materialSet = createBuildingMaterials({ photoSlots: opts.photoSlots });
   const { fillMat: styleMat, edgeMat, uniforms } = materialSet;
   const {
     uGhostK,

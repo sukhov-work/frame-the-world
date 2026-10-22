@@ -9,21 +9,22 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-22g (`mem:project/wip-2026-10-22-owner-asks-t187-t191`)
-**v1.36.38 stays LIVE (F4 · F5 · T186 + the ten asks). The owner's live read: "ok, fixes look good" + FIVE ASKS + the F6 order,
-RECORDED — nothing built.** T187 the texture fade must BEGIN at ~2 km (today 1,300 → 2,000 m: `slotRangeM` 2,000 × `slotFadeFrac` 0.35;
-"if safe" = the residency lever — `rangeM` 600 is the other fade and costs depth precision) · T188 quick MOVE / ROTATE / SCALE "same as
-with meshes" — a RE-ASK of T175's `FacadeEditChip` (null unless `placed` and nothing armed): find out LIVE why it is unseen, then twin the
-meshes' chip shape · T189 MY PLACES pins → LOCATION-PIN icon billboards (the MY SPOT glyph `CameraTiltPanel.tsx:564`), bigger +
-hover-highlightable (the `facadeMarkers` idiom); the /m MY LOC cell + the FPV minimap's `.mw-recenter` take the icon, no text ·
-**T190 A RULING: every visitor sees every member's textures — signed out, unmoderated, owner-UNFILTERED** (the `/api/world-models`
-posture; `facadeWorldItem` carries no member id; MINE + the writes stay owner-gated; proven LIVE only — T173). Supersedes the
-PRIVATE-rows posture = the owner's explicit waiver of C6's moderation gate for TEXTURES (C6 still governs the pins; a carve-out note is
-in `CLAUDE.md`) · T191 the /m LAYERS row → a semi-transparent modal with a grid of toggleable icon cells (inside F6). **THEN F6 the
-mobile twin VIEW-ONLY** (no upload / editing on /m; the projector + markers under a measured phone budget; "carefully check mobile
-performance") → F5's remainders → T184 / T185 · T166 · T165 · T167 · T164.
+## Status — 2026-10-23 (`mem:project/wip-2026-10-23-owner-asks-build-t187-t191-f6`)
+**THE FIVE ASKS + F6 BUILT, gated, browser-verified on dev (desktop + an emulated iPhone) and RELEASED — v1.36.42 LIVE (2026-10-23b);
+T190 proven live (leg 7b); PR #155 (the ship) did NOT auto-merge in 45 min with every check green — resolve at boot.** T187 the fade 2 → 3 km (`slotRangeM` 3,000 · `slotFadeFrac` 1/3) ·
+T188 the G / R / S hotkeys + the chip's per-op rows (value · was the EXIF pose · ↺ journaled) — THE LIVE FINDING: the chip was ALREADY rendered
+on plux.today after MY CONTENT → OPEN, orbit + FPV (the probe had hit the root's `pointer-events: none`) · T189 the saved places = pin-glyph
+billboards (hover × 1.4; a click → the clock then the FPV jump at the saved viewpoint; the /m MY LOC icon cell; the map window's re-centre glyph)
+· **T190 textures PUBLIC** (GET `?cells=` elevated, no member, no owner filter; MINE / writes gated; the store keeps the world across a sign-out;
+proven live by `verify-facades-live.mjs` legs 7b + 9's signed-out pass after the release) · T191 the /m LAYERS modal grid · **F6 VIEW-ONLY:**
+`PHOTO_PROJECT_LEAN` (K 2 draftless · 1024² = 11.2 MB · 512-px depth · 2 s cadence · 3 km cover · ×2 markers) via `photoProjectFor(lean)`;
+the projector + markers on every tier, the editing surface `hqAllowed`, a tap → `store/facades.peek` → `mobile/FacadePeek` (◎ LOOK); measured
+on the emulated phone: frame cost ON p95 9.2 ms vs OFF 9.3. NEXT: F5's remainders (the pure PnP solve `lib/geo/pnp.ts` is in; the pairs UI +
+SOLVED storage next) → T184 / T185 · T166 · T165 · T167 · T164.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-10-22g the owner's live read of v1.36.38 → five asks T187–T191 + the F6 order, recorded** (`wip-2026-10-22-owner-asks-t187-t191`):
+  the owner's verbatim words + the 10-22h rulings (the fade tail, the place click → FPV).
 - **2026-10-22e F4 the photo ARRAY texture · F5 `targetFeatureIds` · T186 → v1.36.38** (`wip-2026-10-22-f4-f5-release`): `slots` 6 ·
   `layerPx` 2048 (every photo stretched to the square layer; 134 MB at K 6) · one `sampler2DArray` `uFtwProjPhotoArr`, `uFtwProjSlot.y`
   = the layer, units 3 + 1 + K · `lib/globe/facadeTargets.ts` + `buildingHit.ts` (the 7 × 5 ray grid, `osm:w<id>` from the b3dm
@@ -45,17 +46,20 @@ performance") → F5's remainders → T184 / T185 · T166 · T165 · T167 · T16
 - Older eras (2026-10-14 AR yaw lock → v1.36.30 · 10-13 the sticky box + daylight + building colour rung 1 (T158 / T159 await the
   owner) · 10-10 the radar on glass · 09-30 the pin follows the walker + user-model residency · and before): the Era index below.
 
-## Standing facts (2026-10-22)
-- Gates: vitest **3,741 / 245 files** (2026-10-22e) · `astro check` **0/0/28** (the hints are the dated baseline) · knip: only the four
-  pre-existing `normalizeModel` exports.
+## Standing facts (2026-10-23)
+- Gates: vitest **3,796 / 250 files** (2026-10-23) · `astro check` **0/0/29** (the hints are the dated baseline) · knip: only the four pre-existing `normalizeModel` exports (re-check after 2026-10-23).
   Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing; **a session-end
   ship can abort on them while the next session boots** (2026-10-22e) — read the ship log's tail at boot, ship in the foreground if the
   baseline alone is green (`FTW_SHIP_DAEMON=1 bash .claude/hooks/session-end-ship.sh`).
-- `package.json` **1.36.38** (each ship bumps the patch); live **v1.36.38** (2026-10-22e, ship `bb7da92` PR #151 — F4 + F5 + T186 and the
-  ten asks T174–T183; before it v1.36.33, 2026-10-22, `ab4a87b`). The release comment is capped at 250 BYTES. Release: `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (~5 min; background it; `--skip-gates` only right after a ship's gates on the identical tree); `release.sh` + the provisioner use the PINNED CLI (`node_modules/.bin/wix` — `npx @wix/cli@latest` refuses Node < 24.18 since 2026-10-22). **`wix dev` cannot elevate (T173, WDE0027 on every ADMIN collection)** — persistence is proven only on the live site (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
+- `package.json` **1.36.42** (each ship bumps the patch); live **v1.36.42** (2026-10-23b, ship `0bcb7ed` on PR #155 — the five asks + F6;
+  before it v1.36.38, 2026-10-22e, `bb7da92` PR #151). The release comment is capped at 250 BYTES. Release: `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (~5 min; background it; `--skip-gates` only right after a ship's gates on the identical tree); `release.sh` + the provisioner use the PINNED CLI (`node_modules/.bin/wix` — `npx @wix/cli@latest` refuses Node < 24.18 since 2026-10-22). **`wix dev` cannot elevate (T173, WDE0027 on every ADMIN collection)** — persistence is proven only on the live site (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
 - **The photo ARRAY (2026-10-22e, T170):** mips / filters / anisotropy are three's texture-cache KEY — set before the allocation, never
   changed after (a change re-creates the GL texture and drops every layer); never `needsUpdate` on the array after the allocation; a
-  layer upload regenerates the whole array's mips (~24 ms); `PHOTO_PROJECT.slots` / `layerPx` are read ONCE at compile.
+  layer upload regenerates the whole array's mips (~24 ms); `PHOTO_PROJECT.slots` / `layerPx` are read ONCE at attach — PER TIER since F6
+  (`photoProjectFor(lean)`; both tilesets compile the same K; `customProgramCacheKey` names K; `draftSlot: false` on the view-only tier).
+- **The house Chrome's profile carries EXTENSIONS** (2026-10-23): they throw `factory is not a function` into every page — harnesses drop
+  `chrome-extension://` origins (verify.md (b0)); the cleanup can leave the Chrome DEAD — `curl :9333/json/version` before the next run.
+  Synthetic rows (places, facades) ride in-page fetch stubs — the stores wipe a poked row on dev's 401.
 - **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`; a harness that measures it reads the canvas's own pixels along the gap ring (`verify-mobile-fixes-2026-10-10`). **The house Chrome profile keeps a seeded member cookie across harnesses** (T156) — run the signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page from the dev server, never inject JSON.
 - **The /m seats since 2026-09-25:** the tab row is 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem —
   a test or harness pinning 10.8 / 11.2 / 16.4rem is stale. `pinchHardening.test` reads the FIRST occurrence of an audited
@@ -73,22 +77,19 @@ performance") → F5's remainders → T184 / T185 · T166 · T165 · T167 · T16
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14) and expect to restart TWICE (a lazily imported dep
   chunk 404s once); `Failed to fetch dynamically imported module` — `curl` the module first (500 = a real error).
   CDP harnesses: `~/.nvm/versions/node/v24.10.0/bin/node` (Node 20 lacks the global WebSocket).
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T186**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T195**, every row dated).
 - **Never write a per-draw uniform from `mesh.onBeforeRender`** (2026-10-18, T165): three uploads a non-ShaderMaterial's uniforms per
   material switch, not per draw. Per-PASS values go through `material.onBeforeRender`; per-mesh values are vertex attributes.
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42
   T46 T47 T50–T52 T56 T57 T113) · the public-exposure class (T138/T139) until public launch.
 
 ## Next step
-**The owner's five asks IN ORDER — T187 (the fade 2,000 → 3,000 m = `slotRangeM` 3,000 · `slotFadeFrac` 1/3, RULED 10-22h; count
-the slot swaps) · T188 (the facade op chip: why unseen LIVE, then the meshes' chip shape — one row per op + G / R / S) · T189
-(location-pin icons: MY PLACES billboards with hover + the /m MY LOC cell + the minimap re-center, the MY SPOT glyph; a click JUMPS
-INTO FPV at the saved viewpoint — the MobilePlaces order, RULED 10-22h) · T190 (the PUBLIC, owner-unfiltered facade world read — a ruling; the
-anonymous live leg) — then F6 THE MOBILE TWIN, VIEW-ONLY, with T191 (the LAYERS modal) inside it and a MEASURED phone budget (its own
-K 1–2, `layerPx` 1024; a worker-threaded ETC1S → ETC2 encode measurement is worth it there), then F5's remainders (the uv rectangle →
-crop-to-building, the `alignment` pairs + the pure PnP solve), then T184 / T185, T166 · T165 · T167 · T164.** The 2026-10-22e taste
-points (K 6 / 134 MB, `· N BLDG`, the FPV jump on a fresh upload, the Menu order, the split heights, MY CONTENT's window) passed
-without comment — "fixes look good".
+**T195 FIRST — the saved-place pins drift / float as the camera moves (orbit + FPV; the owner's live find on v1.36.42) — then finish the
+DRAFT ADR `rendering/ADR_BUILDING_TEXTURES_2026-10-23.md` (the evidence is in; the prose + the no-slop pass are owed), then finish the
+DRAFT guide chapter BUILDING TEXTURES (verify against the live UI, re-shoot three screenshots, `verify-guide`), then release T193 (the
+public copy) · T194 (the 409 retry) · T195, then F5's pairs UI + SOLVED storage on `lib/geo/pnp.ts`.** PR #155 (the ship) awaits the
+owner's approval — the codebot's P0 is the T190 ruling. Open tails: the pointer cursor race (recorded), the /m LOOK lands AT the apex, the
+lean numbers are an EMULATED read, T192 pagination, T184 / T185.
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).
 Digests: DECISIONS §Per-phase digests; verbatim: `DECISIONS_ARCHIVE.md` §Moved dividers r2 2026-08-15 · r3 08-18 ·
@@ -139,6 +140,7 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The owner's seven asks T174–T183 built + dev-verified; F4 / F5 deferred (10-22d) · 10-22-owner-asks-t174-t183
 - F4 the photo ARRAY texture · F5 the alignment hook (`targetFeatureIds`) · T186 FPV-at-the-apex → v1.36.38 (10-22e) · 10-22-f4-f5-release
 - The owner's live read of v1.36.38 → five asks T187–T191 (T190 textures PUBLIC — a ruling) + F6 VIEW-ONLY ordered; nothing built (10-22g) · 10-22-owner-asks-t187-t191
+- The five asks T187–T191 + F6 the view-only mobile twin BUILT + dev-verified (desktop + an emulated iPhone) → v1.36.42; the pure PnP solve for F5 (10-23) · 10-23-owner-asks-build-t187-t191-f6
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

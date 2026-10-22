@@ -412,7 +412,8 @@ export async function fetchMyFacades(skip = 0): Promise<{ facades: FacadeListIte
 }
 
 /** GET /api/facades?cells= — the residency read for a geohash cover (p5 cells, ≤ 16 per query — a
- *  larger cover goes out as several queries, the `fetchWorldCover` precedent). Member-only; v1 = mine. */
+ *  larger cover goes out as several queries, the `fetchWorldCover` precedent). PUBLIC since T190
+ *  (owner 2026-10-22g) — no sign-in, every member's rows. */
 export async function fetchWorldFacades(cells: readonly string[]): Promise<{ facades: FacadeWorldItem[]; complete: boolean }> {
   return getJson(`/api/facades?cells=${encodeURIComponent(cells.join(","))}`);
 }

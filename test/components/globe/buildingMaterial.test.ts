@@ -224,6 +224,27 @@ describe("buildingMaterial — the photo projection block (the photo flow (b), 2
     expect(Object.keys(edge.uniforms).filter((k) => k.startsWith("uFtwProj"))).toEqual([]);
   });
 
+  it("F6 — `photoSlots` compiles its OWN K (the lean / mobile tier): 2 unrolled blocks, 2-long arrays, a program cache key naming K", () => {
+    const lean = createBuildingMaterials({ photoSlots: 2 });
+    const lf = compile(lean.fillMat).fragmentShader;
+    const arrays = [...lf.matchAll(/uniform\s+(?:highp\s+)?\w+\s+(uFtwProj\w+)\s*\[\s*(\d+)\s*\]\s*;/g)].map((m) => [m[1], Number(m[2])]);
+    expect(arrays.map((a) => a[1])).toEqual([2, 2, 2, 2]);
+    expect(lf).toMatch(/for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*2\s*;/);
+    for (const arr of [lean.uniforms.uFtwProjFromView, lean.uniforms.uFtwProjApexV, lean.uniforms.uFtwProjDepth, lean.uniforms.uFtwProjSlot]) expect(arr.value).toHaveLength(2);
+    expect(lean.fillMat.customProgramCacheKey()).toBe("ftwProjK2");
+    expect(createBuildingMaterials().fillMat.customProgramCacheKey()).toBe(`ftwProjK${PHOTO_PROJECT_SLOTS}`);
+    expect(createBuildingMaterials({ photoSlots: 0 }).uniforms.uFtwProjDepth.value).toHaveLength(1); // the floor is 1
+    // The pack never writes past ITS K: four live slots into a K-2 set → two packed, uFtwProjOn 2.
+    const mk = (layer: number) => ({ on: true, layer, depth: new THREE.Texture(), projVP: new THREE.Matrix4(), apexW: new THREE.Vector3(), slot: new THREE.Vector4(1, 0, 600, 0.6) });
+    const feed = { slots: [mk(0), mk(1), mk(2), mk(3)], photos: new THREE.DataArrayTexture(null, 4, 4, 2), k: new THREE.Vector4(1, 0, 0, 1), depthP: new THREE.Vector4(1, 3000, 0.35, 0.0004), facing: new THREE.Vector4(0.12, 0.32, 0.03, 0) };
+    lean.setPhotoProjector(feed as never);
+    const cam = new THREE.PerspectiveCamera();
+    cam.updateMatrixWorld();
+    (lean.fillMat.onBeforeRender as (r: unknown, s: unknown, c: THREE.Camera) => void)({ info: { render: { frame: 1 } } }, null, cam);
+    expect(lean.uniforms.uFtwProjOn.value).toBe(2);
+    expect(lean.uniforms.uFtwProjDepth.value).toHaveLength(2);
+  });
+
   it("the defaults are inert and match PHOTO_PROJECT; the per-slot arrays are exactly K long", () => {
     const { uniforms } = createBuildingMaterials();
     expect(uniforms.uFtwProjOn.value).toBe(0);

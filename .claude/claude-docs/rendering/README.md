@@ -11,6 +11,7 @@ Nothing here is binding on scope; `PROJECT_SEED.md` §3/§4 still is.
 
 | File | Date | What it is | Status |
 |---|---|---|---|
+| `ADR_BUILDING_TEXTURES_2026-10-23.md` | 2026-10-23 | The building-textures (facade photo projection) design record: the cited evidence — timeline, components, contract, the decision ladder with the rejects, numbers, gaps, risks | **DRAFT** — the prose is the next session's; `PHOTO_PROJECTION_PLAN_2026-10-21.md` is the plan it supersedes |
 | `RENDERING_ARCHITECTURE.md` | 2026-08-26 | As-built rendering reference: frame journey, then per-module knobs and seams | CURRENT — the durable reference |
 | `ULTRA_ARCHITECTURE.md` | 2026-08-22j, §13–§14 appended 2026-08-27 | ULTRA as built: nine levers, the gate, the off-state contract | CURRENT — the durable ULTRA reference |
 | `ENGINE_STATE_2026-09-02.md` | 2026-09-02 | The whole engine as-is: system map, subsystem cards, gaps, the §8 non-regression contract | CURRENT — T77's as-is baseline |

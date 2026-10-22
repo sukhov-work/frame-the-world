@@ -11,9 +11,10 @@
  * in the city material from this pose.
  *
  * C6: a projected facade photo is EXACT by nature — the pose IS the content, so reduced precision
- * cannot apply. Rows are PRIVATE by default (`isPublic` false, `moderation` "PRIVATE"); the v1
- * world read returns the calling member's OWN rows only. Any public tier needs explicit consent +
- * the moderation gate first — never a flag flip.
+ * cannot apply. T190 (owner ruling 2026-10-22g): the world read is PUBLIC — every visitor streams
+ * every member's rows, signed out and unmoderated (`isPublic` / `moderation` are stamped but not
+ * consulted; REMOVED is the one withheld state, set by hand only). The owner id, the file ids and
+ * the original never leave the server. MINE and the writes stay owner-gated.
  *
  * THE APEX HEIGHT. `apexAltM` is the rendered apex height above the WGS84 ellipsoid at save time —
  * the number the owner saw — so a resident (read-only) facade rebuilds its frustum from it directly
@@ -101,8 +102,9 @@ export interface UpdateFacadeBody extends Partial<FacadePose>, Partial<FacadePro
 
 /**
  * The slim world row the residency read returns — enough to build the frustum + the projector slot
- * + a marker; NEVER an owner id, a file id or the original. One shape for "mine" and "world" (v1
- * world = mine; the fields a public tier would hide are not here to begin with).
+ * + a marker; NEVER an owner id, a file id or the original. One shape for "mine" and "world". T190
+ * (owner ruling 2026-10-22g): the world read is PUBLIC — every visitor streams every member's rows,
+ * signed out and unmoderated — so this shape IS the public tier; it never grows an owner field.
  */
 export interface FacadeWorldItem extends FacadePose, FacadeProjectionParams {
   id: string;
@@ -618,7 +620,9 @@ function editableColumns(e: FacadeEditable): Record<string, unknown> {
  * from the descriptors the SERVER verified (`verifyFacadeImageDescriptor`) — a client never
  * dictates one; a thumb whose descriptor was refused is stored as NO thumb (id and URL both null —
  * the id is only ever meaningful beside a verified URL; markers fall back to the display).
- * C6: `isPublic` false and `moderation` "PRIVATE" are not body-driven — there is no public tier.
+ * C6: `isPublic` false and `moderation` "PRIVATE" are not body-driven. T190 (owner 2026-10-22g):
+ * the world read IGNORES both — every row is public to every visitor; REMOVED is the only withheld
+ * state (a moderation flag kept for a future gate, never consulted today).
  */
 export function facadeRecord(
   body: SaveFacadeBody,
@@ -748,8 +752,8 @@ const isoOf = (v: unknown): string | null =>
   v instanceof Date ? v.toISOString() : typeof v === "string" && v.length > 0 ? v : null;
 
 /** The world row off a stored item — null for anything a frustum cannot be built from (no pose, no
- *  display URL, no id). One shape for "mine" and "world" (v1 world = mine; C6-clean by construction:
- *  no owner id, no file id, no original). */
+ *  display URL, no id). One shape for "mine" and "world" (the PUBLIC world row since T190; C6-clean
+ *  by construction: no owner id, no file id, no original). */
 export function facadeWorldItem(item: Record<string, unknown>): FacadeWorldItem | null {
   if (typeof item._id !== "string") return null;
   const displayUrl = strOrNull(item.displayUrl);

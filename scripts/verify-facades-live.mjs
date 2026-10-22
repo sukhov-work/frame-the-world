@@ -172,6 +172,17 @@ const runLeg = async (id, name, fn, { needs = () => null } = {}) => {
   }
 };
 const fmt = (fails, ok) => (fails.length ? fails.join(" · ") : ok);
+/** T188 — the facade chip's rendered state: rect, computed visibility, what the point at its centre hits. */
+const CHIP_PROBE = `(() => { const c = document.querySelector("[data-facade-chip]"); if (!c) return { present: false };
+  const r = c.getBoundingClientRect(); const cs = getComputedStyle(c);
+  // The chip ROOT annotates (pointer-events none — the buttons opt back in), so the hit test aims at
+  // the MOVE button's centre: the element there must be that button (or inside it).
+  const b = c.querySelector('.bec-op[data-op="move"]') ?? c; const br = b.getBoundingClientRect();
+  const top = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2);
+  const covered = !!top && !b.contains(top);
+  const path = (el) => { const out = []; for (let e = el; e && e !== document.body && out.length < 4; e = e.parentElement) out.push(e.tagName.toLowerCase() + (typeof e.className === "string" && e.className ? "." + e.className.trim().split(/\\s+/).slice(0, 2).join(".") : "")); return out.join(" < "); };
+  const ops = [...c.querySelectorAll(".bec-op")].map((b) => b.dataset.op + (b.getAttribute("aria-selected") === "true" ? "*" : ""));
+  return { present: true, rect: [r.left, r.top, r.width, r.height].map(Math.round), vw: innerWidth, vh: innerHeight, display: cs.display, visibility: cs.visibility, opacity: cs.opacity, covered, over: covered ? path(top) : null, ops }; })()`;
 const near = (a, b, eps) => typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= eps;
 /** Poll a predicate (the Wix Data list read can lag the write). */
 const poll = async (fn, tries = 10, everyMs = 1000) => {
@@ -377,6 +388,40 @@ try {
     { needs: needRow },
   );
 
+  // ═══ 7b · T190 — THE PUBLIC WORLD READ (owner ruling 2026-10-22g) ═══════════════════════════
+  // Signed OUT, `?cells=` answers 200 with EVERY member's rows: the probe row (another member's,
+  // from the anonymous caller's view) AND at least one row the probe member does not own — the
+  // owner's real textures (a synthetic row alone proves nothing about the owner filter). The cells
+  // are the probe cell + its eight p5 neighbours (≈ 15 km square) unless FTW_OWNER_CELLS names them.
+  await runLeg(
+    "7b",
+    "T190: GET /api/facades?cells= SIGNED OUT → 200 · the probe row · another member's rows · no owner id",
+    async () => {
+      const fails = [];
+      const mineIds = new Set(((await listMine()) ?? []).map((f) => f.id));
+      if (createdId) mineIds.add(createdId);
+      const cells = process.env.FTW_OWNER_CELLS
+        ? process.env.FTW_OWNER_CELLS.split(",").map((c) => c.trim()).filter(Boolean)
+        : [...new Set([-1, 0, 1].flatMap((dy) => [-1, 0, 1].map((dx) => encodeGeohash(POSE.lat + dy * 0.045, POSE.lon + dx * 0.07, 5))))];
+      const anon = await api("GET", `/api/facades?cells=${cells.join(",")}`, { auth: false });
+      if (anon.status !== 200) return { pass: false, detail: `signed out → ${anon.status} ${anon.text?.slice(0, 120)}` };
+      const rows = anon.json?.facades ?? [];
+      if (typeof anon.json?.complete !== "boolean") fails.push(`complete ${anon.json?.complete}`);
+      if (createdId && !rows.some((f) => f.id === createdId)) fails.push("the probe row is not in the signed-out answer");
+      const others = rows.filter((f) => !mineIds.has(f.id));
+      if (others.length === 0) fails.push(`no row of another member in ${cells.join(",")} (set FTW_OWNER_CELLS to the owner's cells)`);
+      for (const f of rows) {
+        for (const k of ["ownerMemberId", "ownerId", "displayFileId", "thumbFileId", "originalFileId"]) if (k in f) fails.push(`row ${f.id} carries ${k}`);
+        if (!String(f.displayUrl).startsWith("https://static.wixstatic.com/media/")) fails.push(`row ${f.id} displayUrl ${f.displayUrl}`);
+      }
+      // MINE stays gated: the list without cells is still 401 signed out (leg 1 proved it; re-assert here).
+      const mine = await api("GET", "/api/facades", { auth: false });
+      if (mine.status !== 401) fails.push(`MINE signed out → ${mine.status}`);
+      return { pass: fails.length === 0, detail: fmt(fails, `${rows.length} rows signed out · ${others.length} of other members · ${cells.length} cells`) };
+    },
+    { needs: needRow },
+  );
+
   // ═══ 8 · THE OWNER EDIT ═══════════════════════════════════════════════════════════════════════
   const newLon = POSE.lon + 0.0002;
   await runLeg(
@@ -457,7 +502,77 @@ try {
           await shot("02-saved-panel.jpeg");
           const panelText = await s.evalJs(`document.querySelector(".pd.ff-panel")?.textContent?.slice(0, 400) ?? ""`);
           if (!panelText) fails.push("the panel has no text");
-          return { pass: fails.length === 0, detail: fmt(fails, `row → panel in ${Date.now() - t0} ms · shots ${SHOTS}/`) };
+          // T188 (owner 2026-10-22g — the re-ask of T175): the facade chip must be RENDERED after OPEN,
+          // in orbit AND in FPV — geometry on screen + the element under its centre is the chip itself
+          // (the `[hidden]` trap of 2026-08-13: a DOM node is not a visible one). Each op attaches
+          // on a click (the DOM state — a production build has no `__globe`).
+          const chipProbe = async (label) => {
+            const c = await s.evalJs(CHIP_PROBE);
+            if (!c.present) fails.push(`${label}: no [data-facade-chip] in the DOM`);
+            else {
+              if (c.rect[2] < 40 || c.rect[3] < 16) fails.push(`${label}: chip rect ${c.rect.join("×")}`);
+              if (c.rect[1] < 0 || c.rect[1] + c.rect[3] > c.vh || c.rect[0] < 0 || c.rect[0] + c.rect[2] > c.vw) fails.push(`${label}: chip off-screen ${c.rect.join(",")} in ${c.vw}×${c.vh}`);
+              if (c.display === "none" || c.visibility !== "visible" || Number(c.opacity) < 0.5) fails.push(`${label}: chip display ${c.display} / ${c.visibility} / opacity ${c.opacity}`);
+              if (c.covered) fails.push(`${label}: chip covered by ${c.over}`);
+            }
+            return c;
+          };
+          const chipOrbit = await chipProbe("orbit");
+          await shot("03-facade-chip-orbit.jpeg");
+          if (chipOrbit.present) {
+            await s.evalJs(`document.querySelector('[data-facade-chip] [data-op="move"]').click(), true`);
+            const moved = await s.waitFor(`document.querySelector('[data-facade-chip] [data-op="move"]')?.getAttribute("aria-selected") === "true"`, 5_000, "MOVE selected").catch(() => null);
+            if (moved === null) fails.push("orbit: MOVE did not select");
+            await s.evalJs(`document.querySelector('[data-facade-chip] [data-op="none"]').click(), true`);
+          }
+          // FPV: boot the deployed shell straight into FPV (the `#f=` pose hash) and re-open the row —
+          // T186 jumps the walker to the apex; the chip must be rendered there too.
+          await s.bootUrl(`${APP}/?d=1#f=${POSE.lat},${POSE.lon},1.7,${POSE.headingDeg},0,60`);
+          await s.waitFor(`!!document.querySelector(".nm-btn") && !!document.querySelector(".mp-toggle")`, 90_000, "the Menu button + MY CONTENT (FPV boot)");
+          await s.evalJs(`document.querySelector(".nm-btn").click(), true`);
+          await s.evalJs(`document.querySelector(".mp-toggle").click(), true`);
+          await s.waitFor(`!!document.querySelector('.mp-tab[data-tab="textures"]')`, 15_000, "the TEXTURES tab (FPV)");
+          await s.evalJs(`document.querySelector('.mp-tab[data-tab="textures"]').click(), true`);
+          await s.waitFor(`!!(${rowSel})`, 45_000, "the MY CONTENT · TEXTURES row (FPV)");
+          await s.evalJs(`((${rowSel}).querySelector('[data-act="open"]') ?? (${rowSel})).click(), true`);
+          await s.waitFor(`!!document.querySelector(".pd.ff-panel [data-facade-update]")`, 45_000, "the saved panel (FPV)");
+          await sleep(2500);
+          const fpvOn = await s.evalJs(`!!document.querySelector(".fh")`);
+          if (!fpvOn) fails.push("FPV: the HUD is not up after the #f= boot");
+          const chipFpv = await chipProbe("fpv");
+          await shot("04-facade-chip-fpv.jpeg");
+          const chipLine = (c) => (c.present ? `rect ${c.rect.join("×")}${c.covered ? ` UNDER ${c.over}` : ""} ops ${c.ops.join("/")}` : "ABSENT");
+          // T190 — SIGNED OUT, the deployed UI reads the world and PAINTS it: drop the cookie, boot
+          // over the probe row's apex, wait for the world read to go out, then for the row's DISPLAY
+          // photo to be fetched — the projector requests it only for a RESIDENT slot (in view, in
+          // range, TEX on by default), which is the paint itself as far as a DOM walk can see.
+          await s.send("Network.deleteCookies", { name: "wixSession", url: APP + "/" });
+          // The globe streams hundreds of tiles — the resource-timing buffer (250) overflows long before
+          // the world read goes out, so `performance.getEntriesByType` cannot see it (the first live run,
+          // 2026-10-23). Record every fetch URL from the first script instead.
+          await s.send("Page.addScriptToEvaluateOnNewDocument", {
+            // Every caller shape (a string, a URL, a Request) lands as a string — one `undefined` in the list
+            // would throw inside the `.some(u => u.includes(…))` wait and read as "never fired" (2026-10-23).
+            source: "window.__ftwSeen = []; const __f0 = window.fetch.bind(window); window.fetch = (i, o) => { try { window.__ftwSeen.push(String(i && typeof i === 'object' && 'url' in i ? i.url : i)); } catch {} return __f0(i, o); };",
+          });
+          await s.bootUrl(`${APP}/?d=1#p=${POSE.lat},${POSE.lon},700,30,${POSE.headingDeg}`);
+          await s.waitFor(`!!document.querySelector(".nm-btn")`, 90_000, "the shell (signed out)");
+          const displayUrlTail = String(saved?.displayUrl ?? "").split("/media/")[1]?.slice(0, 40) ?? "__no-display-url__";
+          const worldRead = await s
+            .waitFor(`(window.__ftwSeen ?? []).some((u) => String(u).includes("/api/facades?cells=")) || performance.getEntriesByType("resource").some((e) => e.name.includes("/api/facades?cells="))`, 60_000, "the world read (signed out)")
+            .catch(() => null);
+          if (worldRead === null) fails.push("signed out: no /api/facades?cells= request went out");
+          const anonRows = await s.evalJs(
+            `fetch("/api/facades?cells=${GH5}", { credentials: "omit" }).then((r) => r.ok ? r.json() : { status: r.status }).then((j) => ({ status: j.status ?? 200, ids: (j.facades ?? []).map((f) => f.id) }))`,
+          );
+          if (anonRows.status !== 200) fails.push(`signed out in-page read → ${anonRows.status}`);
+          else if (!anonRows.ids.includes(createdId)) fails.push("signed out in-page read lacks the probe row");
+          const painted = await s
+            .waitFor(`(window.__ftwSeen ?? []).some((u) => String(u).includes(${JSON.stringify(displayUrlTail)})) || performance.getEntriesByType("resource").some((e) => e.name.includes(${JSON.stringify(displayUrlTail)}))`, 60_000, "the display photo fetched (signed out)")
+            .catch(() => null);
+          if (painted === null) fails.push("signed out: the probe row's display photo was never fetched (not resident / not painted)");
+          await shot("05-anonymous-world.jpeg");
+          return { pass: fails.length === 0, detail: fmt(fails, `row → panel in ${Date.now() - t0} ms · chip orbit ${chipLine(chipOrbit)} · fpv ${chipLine(chipFpv)} · signed out: ${anonRows.ids?.length ?? 0} rows, photo fetched in ${painted} ms · shots ${SHOTS}/`) };
         } catch (e) {
           await shot("99-failure.jpeg").catch(() => {});
           throw e;

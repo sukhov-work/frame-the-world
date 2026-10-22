@@ -29,6 +29,7 @@ import BestSpotSheet from "./BestSpotSheet";
 import GuideSheet from "./GuideSheet";
 import TargetSheet from "./TargetSheet";
 import TargetPeek from "./TargetPeek";
+import FacadePeek from "./FacadePeek";
 import SceneActions from "./SceneActions";
 import FpvControls from "./FpvControls";
 import ScaleBar from "./ScaleBar";
@@ -203,6 +204,9 @@ export default function MobileShell() {
           fullscreen map, so the aim stick survives the /m "minimap mode" too). */}
       <AimJoystick variant={fpvOn ? "fpv" : "map"} />
       <div className="m-bottom">
+        {/* F6: the tapped saved-facade texture's peek (view-only — LOOK FROM HERE / ✕), above the
+            target's row; null until a marker is tapped. */}
+        <FacadePeek />
         <TargetPeek onOpen={() => setSheet("target")} />
         <MobileTimeDock />
         <TabBar active={activeTab} onSelect={onTab} live={live} onLongPress={onTabLongPress} />

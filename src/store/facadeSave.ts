@@ -68,6 +68,10 @@ export interface FacadeSaveState {
   reset: () => void;
 }
 
+/** T194 — the bounded re-POST while Wix Media ingests the display image (409 `FILE_NOT_READY`):
+ *  6 tries 1.5 s apart ≈ 9 s, the live walk's own retry budget. Mutable for tests. */
+export const FACADE_SAVE_RETRY = { attempts: 6, delayMs: 1500 };
+
 /** Any in-flight write phase — starting another operation while one runs is refused (the B15 invariant). */
 const BUSY_PHASES: readonly FacadeSavePhase[] = [
   "uploading-original",
@@ -188,11 +192,25 @@ export const useFacadeSaveStore = create<FacadeSaveState>((set, get) => ({
         warnings.push("thumb upload failed — markers use the display copy");
       }
 
-      // 4) the record — the private row; the server copies the URLs off the verified descriptors.
+      // 4) the record — the server copies the URLs off the verified descriptors. Wix Media ingests
+      //    an image ASYNCHRONOUSLY after the PUT: the endpoint answers 409 `FILE_NOT_READY`
+      //    (`retryable`) while the descriptor settles — the live walk saw it on most first POSTs
+      //    (`verify-facades-live.mjs` leg 5 retries it). The store retries the SAME body a bounded
+      //    number of times (T194, 2026-10-23); before this the user read "save failed" and a second
+      //    SAVE re-uploaded all three files, orphaning the first set.
       set({ phase: "saving" });
-      const res = await media.postFacadeRecord(
-        buildSaveFacadeBody({ ...snapshot, targetFeatureIds: probeFacadeTargets() }, { originalFileId, displayFileId, thumbFileId }),
-      );
+      const saveBody = buildSaveFacadeBody({ ...snapshot, targetFeatureIds: probeFacadeTargets() }, { originalFileId, displayFileId, thumbFileId });
+      let res: Awaited<ReturnType<typeof media.postFacadeRecord>> | undefined;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          res = await media.postFacadeRecord(saveBody);
+          break;
+        } catch (e) {
+          const code = (e as { code?: string }).code;
+          if (code !== "FILE_NOT_READY" || attempt >= FACADE_SAVE_RETRY.attempts) throw e;
+          await new Promise((r) => setTimeout(r, FACADE_SAVE_RETRY.delayMs));
+        }
+      }
       set({ phase: "saved", facadeId: res.facadeId, warning: warnings.length ? warnings.join(" · ") : undefined });
       useFacadePhotoStore.getState()._markSaved(res.facadeId); // SAVE becomes UPDATE from here on
       await withResidency((facades) => {

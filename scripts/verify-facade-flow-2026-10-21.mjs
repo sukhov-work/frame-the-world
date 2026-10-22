@@ -66,12 +66,14 @@ ws.onmessage = (ev) => {
   if (msg.method === "Runtime.consoleAPICalled") {
     const type = msg.params?.type;
     const text = (msg.params.args ?? []).map((a) => a.value ?? a.description ?? "").join(" ");
-    if (type === "error") consoleErrors.push(text.slice(0, 240));
+    if (type === "error" && !/Content Script - Failed to load cookie bridge/.test(text)) consoleErrors.push(text.slice(0, 240));
     if ((type === "error" || type === "warning") && GL_RE.test(text)) glNoise.push(`console.${type}: ${text.slice(0, 240)}`);
   }
   if (msg.method === "Runtime.exceptionThrown") {
     const d = msg.params?.exceptionDetails;
-    consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
+    // The house profile's extensions throw in THEIR content scripts (2026-10-23, verify.md (b0)) — never the app's.
+    const fromExtension = (d?.url ?? "").startsWith("chrome-extension://") || (d?.stackTrace?.callFrames ?? []).some((f) => (f.url ?? "").startsWith("chrome-extension://"));
+    if (!fromExtension) consoleErrors.push("EXCEPTION: " + (d?.exception?.description ?? d?.text ?? "").slice(0, 240));
   }
   if (msg.method === "Log.entryAdded") {
     const e = msg.params?.entry;
@@ -501,14 +503,17 @@ try {
   if (!bootOk) aborted = "boot failed";
 
   // ═══ 2 · SIGNED-OUT GUARD ═════════════════════════════════════════════════════════════════════
-  await runLeg(2, "signed-out: GET /api/facades → 401 + the overlay's sign-in note", async () => {
+  await runLeg(2, "signed-out: GET /api/facades → 401 (MINE) · ?cells= public (200 live / 502 dev) + the overlay's sign-in note", async () => {
     const fails = [];
     const anon = await waitFor(`window.__memberStore.getState().phase === "anonymous"`, 15_000, 300);
     if (!anon.ok) fails.push(`member phase ${await evalJs("window.__memberStore.getState().phase")} (a seeded cookie survived — T156)`);
     const r = await pageApi("/api/facades");
     if (r.status !== 401 || r.body?.error !== "SIGNED_OUT") fails.push(`GET /api/facades → ${r.status} ${JSON.stringify(r.body)}`);
+    // T190 (owner 2026-10-22g): the world read is PUBLIC — 200 on the live site; on dev the elevated
+    // query cannot run (WDE0027, T173) → 502 LIST_FAILED. Never a 401 any more.
     const w = await pageApi("/api/facades?cells=ubcu4");
-    if (w.status !== 401) fails.push(`GET ?cells= → ${w.status}`);
+    if (w.status !== 200 && w.status !== 502) fails.push(`GET ?cells= signed out → ${w.status} (want 200, or 502 on dev — T173)`);
+    if (w.status === 401) fails.push("the public world read still asks for a member (T190)");
     const d = await pageApi("/api/facades?id=bogus", { method: "DELETE", headers: { "Content-Type": "application/json" } });
     if (d.status !== 401) fails.push(`DELETE signed out → ${d.status}`);
     const opened = await openOverlay();

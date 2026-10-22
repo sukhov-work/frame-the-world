@@ -589,6 +589,8 @@ export function attachEnrichedBuildings(
     terrainDirtyRegions?: () => [number, number, number, number][];
     /** UPLIFT U5: the shared download-priority aim state (mirrors attachBuildings.loadAim). */
     loadAim: LoadAim;
+    /** F6 (2026-10-23): the projector slots K compiled into the fill material — the OSM set's twin. */
+    photoSlots?: number;
     /** T106 slice (b): the per-frame ms budget for phase 2 of `load-model` (the deferred edge
      *  build / attribution / registry — `lib/globe/loadQueue`). The orchestrator keys it on
      *  `lean` (`ENRICHED.loadBudgetMs` / `loadBudgetMsLean`); the default is the desktop value. */
@@ -762,6 +764,7 @@ export function attachEnrichedBuildings(
   const materialSet = createBuildingMaterials({
     edgeColor: ENRICHED.debugDistinctEdges ? tokens.accent : tokens.landHi,
     edgeOpacity: ENRICHED.edgeOpacity,
+    photoSlots: opts.photoSlots,
   });
   const { fillMat: styleMat, edgeMat, uniforms } = materialSet;
   /** The as-constructed emissive floor, captured so the dusk trough is a RESTORE rather than a

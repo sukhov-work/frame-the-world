@@ -3605,8 +3605,8 @@ export const FRUSTUM = {
 /** PHOTO PROJECTION (the photo flow (b), prototype 2026-10-18 — `rendering/BUILDING_COLOUR_TRIAGE_2026-10-13.md`
  *  §4): a FACADE photo (store/facadePhoto — technical, never a pin) is projected onto the two building
  *  tilesets' shared fill material from its own camera pose, with occlusion from a depth map rendered at
- *  the pose (scene/photoProjector.ts). Desktop-only (the attach is gated on `hqAllowed`); OFF = one dead
- *  uniform branch per fragment and no extra pass (byte-identical city). The per-pass matrix is
+ *  the pose (scene/photoProjector.ts). Every tier since F6 (the lean tune on /m — `PHOTO_PROJECT_LEAN`);
+ *  OFF = one dead uniform branch per fragment and no extra pass (byte-identical city). The per-pass matrix is
  *  VIEW-space → photo clip space (camera-relative, float32-safe at ECEF — the RTC discipline); nothing
  *  is per-draw (three re-uploads a non-ShaderMaterial's uniforms only on a material switch). */
 export const PHOTO_PROJECT = {
@@ -3678,12 +3678,17 @@ export const PHOTO_PROJECT = {
    *  nearest point of its PAINTED VOLUME (the cone from the apex, as long as the photo's range —
    *  0 inside it; the apex distance before 2026-10-22); beyond it, it is a marker. Larger than the
    *  900 m of F3: the strength FADES across the last `slotFadeFrac` of it, so a photo recedes with
-   *  distance instead of clipping out (owner test 2026-10-22: "gracefully degrade"). */
-  slotRangeM: 2_000,
-  /** T177 — the fade band at the slot range's end, as a fraction of `slotRangeM` (0.35 = the last
-   *  700 m): a resident slot's strength runs 1 → 0 over it; the planner's `slotSwapMarginM` band
-   *  lies beyond, so the release lands on an already-invisible slot. */
-  slotFadeFrac: 0.35,
+   *  distance instead of clipping out (owner test 2026-10-22: "gracefully degrade"). T187 (owner
+   *  2026-10-22g/h, the live read of v1.36.38: "they start fading on buildings around 1 km+ from
+   *  the camera — make it 2 km, another 1 km of tail"): 3,000 × (1 − 1/3) = the fade BEGINS at
+   *  2,000 m and runs to 3,000 m (2,000 × 0.65 = 1,300 → 2,000 m before). The residency is the
+   *  only cost (K stays; a depth map re-renders on a POSE change, never on distance; the ~24 ms
+   *  array upload happens on a SWAP) — the planner's hysteresis keeps the swap count. */
+  slotRangeM: 3_000,
+  /** T177 — the fade band at the slot range's end, as a fraction of `slotRangeM` (1/3 = the last
+   *  1,000 m — T187): a resident slot's strength runs 1 → 0 over it; the planner's
+   *  `slotSwapMarginM` band lies beyond, so the release lands on an already-invisible slot. */
+  slotFadeFrac: 1 / 3,
   /** T177 — the KEEP hysteresis of the in-view gate (deg): a resident stays while its painted
    *  volume is within the view cone widened by `MODELS.farViewMarginDeg` + this; a candidate needs
    *  the narrower cone. A turn across the edge of the frame must not drop + reload a texture. */
@@ -3723,6 +3728,37 @@ export const PHOTO_PROJECT = {
   pitchMaxDeg: 45,
   rollMaxDeg: 30,
 } as const;
+
+/** F6 (2026-10-23, owner 2026-10-22g: "no editing / uploading on mobile, just be able to view on
+ *  map … carefully check mobile performance") — the LEAN tier's overrides on `PHOTO_PROJECT`, the
+ *  `QUALITY.leanMobile` idiom: resolved ONCE at attach by `photoProjectFor(lean)` for the /m shell
+ *  and every coarse-pointer device. K 2 (two SAVED rows — no draft record: /m never places a photo)
+ *  × a 1024² layer = 2 × 1024² × 4 B × 4/3 = **11.2 MB** of GPU for the photos (134 MB on desktop);
+ *  a 512-px depth map per slot (1.3 MB each); the depth re-render cadence 2 s (500 ms on desktop —
+ *  phones pay two full-scene passes per render); anisotropy 4; the world read's half-side 3 km (the
+ *  desktop's 6 km — a phone walks, it does not fly); the camera-icon markers ×2 (0.04 rad ≈ 34 px of
+ *  an 844-px frame — a 44-px touch target class, the desktop's 0.02 is a hover target). */
+export const PHOTO_PROJECT_LEAN = {
+  slots: 2,
+  layerPx: 1024,
+  depthMapPx: 512,
+  depthRefreshMs: 2000,
+  anisotropy: 4,
+  coverRadiusM: 3_000,
+  markerAngularSize: 0.04,
+} as const;
+
+/** The resolved per-tier shape: `PHOTO_PROJECT` with the lean-overridable keys widened to `number`
+ *  (the literal types of the two `as const` objects would otherwise intersect to `never`). */
+export type PhotoProjectTune = Omit<typeof PHOTO_PROJECT, keyof typeof PHOTO_PROJECT_LEAN> & {
+  [K in keyof typeof PHOTO_PROJECT_LEAN]: number;
+};
+
+/** The per-tier `PHOTO_PROJECT` the orchestrator resolves ONCE at attach (`lean` = the /m shell or
+ *  a coarse-pointer device): the desktop values, or the lean overrides on top of them. */
+export function photoProjectFor(lean: boolean): PhotoProjectTune {
+  return lean ? { ...PHOTO_PROJECT, ...PHOTO_PROJECT_LEAN } : PHOTO_PROJECT;
+}
 
 /** Cinematic flight to a placed photo / searched place (design board motion spec: desktop
  *  2200 ms, cubic-bezier(.65, 0, .35, 1); reduced-motion = instant cut). Phase 5.5 S2: terrain
@@ -4294,6 +4330,22 @@ export const PLACEMARKS = {
   /** Idle delay (ms) before the orchestrator kicks the store fetch — the saved-places load
    *  must never ride the boot path (lazy-by-contract). */
   fetchIdleMs: 3_500,
+  // --- T189 (owner 2026-10-22g: "rework my saved places pins on map to look like location icon …
+  //     be a bit bigger and highlightable"; ruling 2026-10-22h: a click JUMPS INTO FPV at the saved
+  //     viewpoint): the markers are LOCATION-PIN billboards in the facade markers' idiom (a canvas
+  //     glyph on a camera-quaternion quad, the stock raycast on, hover → white + larger). The four
+  //     keys above (`angularSize` / `minSizeM` / `maxSizeM` / `alpha`) now serve BEST SPOT's sheet
+  //     only — the pins read these. ---
+  /** The pin quad's side = angular size × camera distance, clamped to [min, max] m — 0.024 is a
+   *  fifth bigger than the facade markers' 0.02 (~26 px of a 1080-px frame past the floor). */
+  markerAngularSize: 0.024,
+  markerMinM: 0.6,
+  markerMaxM: 900,
+  /** Hovered: the pin grows by this factor and brightens to white, eased with the pins' tau (ms). */
+  markerHoverScale: 1.4,
+  markerHoverEaseTauMs: 130,
+  /** The glyph's dark halo (px of the 128-px canvas) — the pin reads on sky and on stone alike. */
+  markerIconOutlinePx: 10,
 } as const;
 
 export const AIMCONES = {

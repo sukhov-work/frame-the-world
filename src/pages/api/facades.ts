@@ -1,15 +1,18 @@
 // /api/facades — the facade-photo lifecycle endpoint (PHOTO PROJECTION F2 persist, T169 / T172 —
-// 2026-10-21): GET the member's own facades (`?skip=`) or the member-gated WORLD read (`?cells=`) ·
+// 2026-10-21): GET the member's own facades (`?skip=`) or the PUBLIC world read (`?cells=`, T190) ·
 // POST save a facade photo whose three files the client already PUT to Wix Media · PATCH an owner
 // edit (pose / projection / seats / title) · DELETE remove one. Thin per C1: validate → auth →
 // verify the descriptor → write. This endpoint is the ONLY writer of the FacadePhotos collection
 // (ADMIN everything platform-side), which makes the URL posture STRUCTURAL: a row only ever carries
 // a display / thumb URL the server copied off a descriptor the platform classified as a public
 // IMAGE under the static host — a client cannot register an arbitrary URL (the /api/models rule).
-// C6: a projected facade photo is EXACT by nature (the pose IS the content), so reduced precision
-// cannot apply — rows are PRIVATE (`isPublic` false, `moderation` "PRIVATE", both stamped
-// server-side, never body-driven) and the v1 world read is OWNER-FILTERED: a member streams their
-// own facades only; any public tier needs explicit consent + the moderation gate first.
+// C6 + the TEXTURES carve-out (owner ruling 2026-10-22g, T190): a projected facade photo is EXACT
+// by nature (the pose IS the content), so reduced precision cannot apply — and the owner ruled that
+// EVERY visitor sees EVERY member's textures: signed out, unmoderated, owner-unfiltered. So the
+// WORLD read (`?cells=`) is PUBLIC and elevated (the /api/world-models posture): no member, no
+// owner filter, REMOVED rows withheld, `isPublic` / `moderation` ignored, and the row it answers
+// (`facadeWorldItem`) carries no owner id, no file id, no original — by construction. MINE
+// (`?skip=`), POST, PATCH and DELETE stay owner-gated. C6 still governs the photo PINS.
 // No quota: `FACADE_MAX_PER_MEMBER` is a HEALTH rail (one `count()` per POST → 429 `TOO_MANY`),
 // not a product limit (owner 2026-10-21: "hundreds per city, maybe thousands").
 import type { APIRoute } from "astro";
@@ -40,26 +43,24 @@ async function ownedFacade(facadeId: string, memberId: string): Promise<Record<s
   return row && row.ownerMemberId === memberId ? (row as Record<string, unknown>) : null;
 }
 
-// GET /api/facades — TWO reads, both member-only (there is no public tier — C6):
-//   · `?cells=<gh5,…>` the WORLD read for a geohash cover (1..16 p5 cells — `parseWorldCells`, the
-//     /api/world-models grammar; `hasSome` on the denormalized `gh5` column, Wix Data has no geo
-//     query — ADR D7), OWNER-FILTERED in v1, REMOVED rows withheld, one page oldest-first,
-//     `complete: false` when a cell holds more than the page → `{ facades: FacadeWorldItem[], complete }`;
-//   · otherwise MY FACADES, newest first, paged by `?skip=` (0-based, `FACADE_PAGE` rows per page —
-//     each page its own elevated call, the /api/building-overrides precedent) → `{ facades:
-//     FacadeListItem[], hasNext }`.
+// GET /api/facades — TWO reads:
+//   · `?cells=<gh5,…>` the PUBLIC WORLD read for a geohash cover (1..16 p5 cells — `parseWorldCells`,
+//     the /api/world-models grammar; `hasSome` on the denormalized `gh5` column, Wix Data has no geo
+//     query — ADR D7): T190 (owner 2026-10-22g) — EVERY member's rows, no sign-in, no owner filter,
+//     REMOVED rows withheld, one page oldest-first, `complete: false` when a cell holds more than the
+//     page → `{ facades: FacadeWorldItem[], complete }` (the slim row — never an owner id);
+//   · otherwise MY FACADES (member-only), newest first, paged by `?skip=` (0-based, `FACADE_PAGE`
+//     rows per page — each page its own elevated call, the /api/building-overrides precedent) →
+//     `{ facades: FacadeListItem[], hasNext }`.
 export const GET: APIRoute = async ({ url }) => {
-  const member = await requireMember();
-  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to list facade photos" }, 401);
-
   const cellsParam = url.searchParams.get("cells");
-  try {
-    if (cellsParam !== null) {
-      const parsed = parseWorldCells(cellsParam);
-      if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
+  if (cellsParam !== null) {
+    // T190: the public world read — the /api/world-models posture (elevated, no member, no owner).
+    const parsed = parseWorldCells(cellsParam);
+    if ("error" in parsed) return json({ error: "BAD_REQUEST", message: parsed.error }, 400);
+    try {
       const res = await auth.elevate(items.query)(FACADES_COLLECTION)
         .hasSome("gh5", parsed.cells)
-        .eq("ownerMemberId", member._id)
         .ne("moderation", "REMOVED")
         .ascending("_createdDate")
         .limit(FACADE_PAGE)
@@ -68,8 +69,15 @@ export const GET: APIRoute = async ({ url }) => {
         .map(facadeWorldItem)
         .filter((f): f is FacadeWorldItem => f !== null);
       return json({ facades, complete: !res.hasNext() });
+    } catch (e) {
+      console.error("[facades:world]", e);
+      return json({ error: "LIST_FAILED", message: "could not list facade photos" }, 502);
     }
+  }
 
+  const member = await requireMember();
+  if (!member) return json({ error: "SIGNED_OUT", message: "sign in to list facade photos" }, 401);
+  try {
     const skip = parseSkip(url.searchParams.get("skip"));
     if ("error" in skip) return json({ error: "BAD_REQUEST", message: skip.error }, 400);
     const res = await auth.elevate(items.query)(FACADES_COLLECTION)

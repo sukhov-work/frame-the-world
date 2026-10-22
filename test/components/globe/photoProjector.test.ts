@@ -9,7 +9,7 @@ import {
   projectorOptics,
   type PhotoProjectorSource,
 } from "../../../src/components/globe/scene/photoProjector";
-import { FRUSTUM, PHOTO_PROJECT } from "../../../src/components/globe/tuning";
+import { FRUSTUM, PHOTO_PROJECT, PHOTO_PROJECT_LEAN, photoProjectFor } from "../../../src/components/globe/tuning";
 import { verticalFovDeg } from "../../../src/lib/decode/sensors";
 import { frustumGeometry, type FrustumGeometry } from "../../../src/lib/geo/frustum";
 import type { Vec3 } from "../../../src/lib/geo/projection";
@@ -194,6 +194,54 @@ describe("attachPhotoProjector — the feed defaults + the K-slot pool (construc
     expect(h.snapshot().slots.map((x) => x.layer)).toEqual(Array.from({ length: PHOTO_PROJECT.slots }, (_, i) => i));
     expect(h.snapshot().slots.every((x) => x.textureReady === false)).toBe(true);
     h.dispose();
+  });
+
+  it("F6 — `photoProjectFor(lean)`: the lean overrides ride on the desktop values and never exceed them", () => {
+    const d = photoProjectFor(false);
+    const l = photoProjectFor(true);
+    expect(d).toBe(PHOTO_PROJECT);
+    expect(l).toMatchObject(PHOTO_PROJECT_LEAN);
+    expect(l.nearM).toBe(PHOTO_PROJECT.nearM); // an untouched key rides through
+    for (const k of ["slots", "layerPx", "depthMapPx", "anisotropy", "coverRadiusM"] as const) expect(l[k]).toBeLessThan(d[k]);
+    expect(l.depthRefreshMs).toBeGreaterThan(d.depthRefreshMs); // a slower cadence on glass
+    expect(l.markerAngularSize).toBeGreaterThan(d.markerAngularSize); // a touch target, not a hover one
+    expect(l.slots).toBeGreaterThanOrEqual(1);
+    // The budget the owner asked for ("carefully check mobile performance"): the photo array under 15 MB.
+    expect((l.layerPx * l.layerPx * 4 * (4 / 3) * l.slots) / 1e6).toBeLessThan(15);
+  });
+
+  it("F6 — `tune`: the lean tier's own K / layerPx / depthMapPx / cadence, and a DRAFTLESS pool where every record serves a saved row", () => {
+    const h = attachPhotoProjector(new THREE.Scene(), {
+      renderer: stubRenderer,
+      osmClipPlanes: null,
+      tune: { slots: 2, layerPx: 1024, depthMapPx: 512, depthRefreshMs: 2000, anisotropy: 4, draftSlot: false },
+    });
+    expect(h.capacity).toBe(2);
+    expect(h.feed.slots).toHaveLength(2);
+    expect(h.snapshot().depthSize).toEqual([512, 512]);
+    expect(h.occupied()).toEqual([]); // no draft record
+    expect(h.snapshot().slots).toEqual([]);
+    expect(h.request(DRAFT_SLOT_ID, src())).toBe(false); // a view-only tier has no draft
+    expect(h.request("a", src())).toBe(true);
+    expect(h.request("b", src())).toBe(true);
+    expect(h.request("c", src())).toBe(false); // the pool is the whole K
+    expect(h.occupied()).toEqual(["a", "b"]);
+    expect(h.snapshot().slots.map((x) => x.layer)).toEqual([0, 1]); // record 0 is a SAVED row's
+    // The draft handle addresses a detached record: harmless, never a pool member, never loaded.
+    h.setSource(src({ url: "https://static.wixstatic.com/media/x.jpg" }));
+    h.update(null, 0);
+    expect(h.occupied()).toEqual(["a", "b"]);
+    expect(h.snapshot().on).toBe(false);
+    expect(h.feed.photos).toBeNull(); // no load was attempted for the detached record
+    h.release("a");
+    expect(h.request("c", src())).toBe(true);
+    expect(h.occupied()).toEqual(["c", "b"]);
+    h.dispose();
+    // The desktop default is byte-for-byte the old behaviour.
+    const d = attach();
+    expect(d.capacity).toBe(PHOTO_PROJECT.slots);
+    expect(d.occupied()).toEqual([DRAFT_SLOT_ID]);
+    d.dispose();
   });
 
   it("setSource clamps strength / ownLight to [0, 1] and resolves the range (null → the tunable) into the DRAFT slot (no url → no fetch)", () => {

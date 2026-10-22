@@ -1,6 +1,7 @@
 # PHOTO PROJECTION — the full desktop flow (plan, owner order 2026-10-21)
 
-**Status: PLAN — nothing below is built.** The prototype (DECISIONS 2026-10-18, `scene/photoProjector.ts`, `store/facadePhoto.ts`,
+**Status: BUILT through F6 (2026-10-23) — this file is the plan as written on 2026-10-21; the as-built design record is
+`rendering/ADR_BUILDING_TEXTURES_2026-10-23.md` (the decisions, the rejects, the numbers, the gaps). Read that first.** The prototype (DECISIONS 2026-10-18, `scene/photoProjector.ts`, `store/facadePhoto.ts`,
 `panels/FacadePhotoFlow.tsx`, `?facade=1`) is the base. Owner's read 2026-10-21 on his own photo in `wix dev`: *"looks promising"*.
 Owner's orders, verbatim in spirit: build the FULL desktop flow per the design (triage §4), performance in mind; an efficient
 low-memory way to store and display the textures — **hundreds per city, maybe thousands** — not huge, not too blurry; keep a path to
@@ -18,7 +19,7 @@ subagents per slice (see `NEXT_SESSION_PROMPT.md` §THE SESSION'S SCOPE for the 
 | F3 **Residency** | Many photos, few live: the world query returns facade records by geohash cells around the view focus (the `pinFollow` / `userModels` cover law: the 16 km square, 5 queries per cover change — `MODELS.fpvFetchRadiusM`); each record is a MARKER (a small frustum glyph / the existing pin style) until it earns a **projector slot**: the K nearest in-view photos (K = `PHOTO_PROJECT.slots`, 4 on desktop) get a texture + a depth map; leaving the range releases the slot (LRU). Slots are the shader's uniform-block count (§3). | `scene/userModels.ts` `planResidency` / `apparentFrac` / `inViewCone`, `store/pins` viewport query | Medium — the residency planner exists for models; the slot handoff (texture load latency, the depth re-render) is new. |
 | F4 **The texture pipeline** | §3 — the display derivative, its GPU form, the memory ceiling. | the decode worker, `lib/textures` | High — the design choice that decides the ceiling; research first (§3 UNVERIFIED items). |
 | F5 **Alignment hooks** | §4 — the data model fields + the per-building association captured at save; no solver yet. | `vFtwFid` / `_feature_id_0`, `bldgSync`'s feature keys | Low now, the foundation for later. |
-| F6 **Mobile twin** | After the desktop flow is judged. The projector is desktop-gated (`hqAllowed`); `/m` would need K=1–2 and a 1024-px derivative. | | Later. |
+| F6 **Mobile twin** | After the desktop flow is judged. The projector is desktop-gated (`hqAllowed`); `/m` would need K=1–2 and a 1024-px derivative. | | **BUILT 2026-10-23, VIEW-ONLY (owner 2026-10-22g):** `PHOTO_PROJECT_LEAN` (K 2 draftless · 1024² layers = 11.2 MB · 512-px depth · 2 s cadence · 3 km cover · ×2 markers) resolved by `photoProjectFor(lean)` once at attach; the projector + markers on every tier (`facadeViewAllowed`), the editing surface stays `hqAllowed`; a TAP → `store/facades.peek` → `mobile/FacadePeek` (◎ LOOK = the FPV jump at the apex); the /m 2D map releases the residents; T191 the LAYERS modal. No upload / editing on /m. Measured on an emulated phone by `verify-owner-asks-2026-10-23.mjs` m1–m8. |
 
 ## 2. Performance posture (the shipped prototype's numbers + the K-slot cost)
 - Prototype: ONE slot — per fragment when on: 1 depth fetch + 1 photo fetch + ~30 ALU under a uniform branch; off: one dead branch.

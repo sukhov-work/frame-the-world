@@ -139,10 +139,17 @@ function samePose(a: FacadeWorldItem, b: FacadeWorldItem): boolean {
 
 export function attachFacadeMarkers(
   scene: THREE.Scene,
-  opts: { planeDistM?: number; fallbackAspect?: number } = {},
+  opts: {
+    planeDistM?: number;
+    fallbackAspect?: number;
+    /** F6 (2026-10-23): the marker's angular size (rad of the frame) — the lean tier's touch-target
+     *  class (`PHOTO_PROJECT_LEAN.markerAngularSize`); absent = `PHOTO_PROJECT.markerAngularSize`. */
+    markerAngularSize?: number;
+  } = {},
 ): FacadeMarkersHandle {
   const planeDistM = opts.planeDistM ?? FRUSTUM.planeDistM;
   const fallbackAspect = opts.fallbackAspect ?? FRUSTUM.fallbackAspect;
+  const markerAngularSize = opts.markerAngularSize ?? PHOTO_PROJECT.markerAngularSize;
   const cap = FACADE_MARKER_CAP;
 
   // A unit quad, screen-aligned per instance by the CAMERA's quaternion in the instance matrix
@@ -354,7 +361,7 @@ export function attachFacadeMarkers(
         if (!e) continue;
         const distM = camera.position.distanceTo(e.apex);
         const scale =
-          THREE.MathUtils.clamp(distM * PHOTO_PROJECT.markerAngularSize, PHOTO_PROJECT.markerMinM, PHOTO_PROJECT.markerMaxM) *
+          THREE.MathUtils.clamp(distM * markerAngularSize, PHOTO_PROJECT.markerMinM, PHOTO_PROJECT.markerMaxM) *
           (1 + (PHOTO_PROJECT.markerHoverScale - 1) * e.hoverAmt);
         _s.setScalar(scale);
         _m.compose(_p.subVectors(e.apex, camera.position), camera.quaternion, _s);
