@@ -28,6 +28,13 @@ import {
 import { focalFromHorizontalFov } from "../lib/decode/sensors";
 import { exifPoseOf } from "../lib/save/facadeBody";
 import type { FacadeListItem, FacadePose, FacadePoseSnapshot } from "../lib/wix/facadeRecords";
+import {
+  FACADE_PAIRS_MAX,
+  parseFacadeAlignment,
+  type FacadeAlignOrigin,
+  type FacadeAlignPair,
+  type FacadeSolved,
+} from "../lib/geo/facadeAlign";
 import { PHOTO_PROJECT } from "../components/globe/tuning";
 
 /**
@@ -39,6 +46,13 @@ export type FacadePhase = "idle" | "decoding" | "review" | "placing" | "placed";
 /** F1 — the gizmo the globe shows on the placed frustum: none (sliders only), move, rotate, scale. */
 export type FacadeGizmoOp = "none" | "move" | "rotate" | "scale";
 export const FACADE_GIZMO_OPS: readonly FacadeGizmoOp[] = ["none", "move", "rotate", "scale"];
+
+/**
+ * F5 (T172, 2026-10-24) — the PAIR PICK state machine: `none` (idle) → `photo` (the panel's photo
+ * overlay awaits a click → `pendingUv`) → `globe` (the orchestrator awaits a click on a building →
+ * the pair completes) → `none`. ONE pair at a time; Escape / the panel's ✕ cancels either half.
+ */
+export type FacadePairPick = "none" | "photo" | "globe";
 
 export interface FacadeProjection {
   /** The projection onto the buildings (the frustum + plane stay visible either way). */
@@ -91,6 +105,20 @@ export interface FacadePhotoStore {
   exifPose?: FacadePose;
   /** F2 — the FacadePhotos row this placed photo IS (a re-open, or after SAVE) → SAVE becomes UPDATE. */
   savedFacadeId?: string;
+  /** F5 — the alignment PAIRS (photo uv ↔ a building point in ENU metres about `pairOrigin`):
+   *  picked here, hydrated from a re-opened row's `alignment`, persisted by SAVE / UPDATE
+   *  (`lib/geo/facadeAlign.ts`). Pose edits never move them — a building point is absolute. */
+  pairs: FacadeAlignPair[];
+  /** F5 — the pairs' ENU origin: the apex (ellipsoidal) the moment the FIRST pair was picked; fixed
+   *  for the life of the record (a re-opened row carries its own). Undefined until then. */
+  pairOrigin?: FacadeAlignOrigin;
+  /** F5 — which half of a pair the user is picking now (see `FacadePairPick`). */
+  pairPick: FacadePairPick;
+  /** F5 — the photo half of the pair in flight (u right, v down), awaiting the globe click. */
+  pendingUv?: [number, number];
+  /** F5 — the last SOLVE's record (its `pose` is the snapshot `restorePose` wrote; the server stamps
+   *  `poseSource: "SOLVED"` while the saved pose still equals it). Cleared with the pairs. */
+  solved?: FacadeSolved;
   loadError?: string;
   decodeError?: string;
   openPanel(): void;
@@ -135,6 +163,23 @@ export interface FacadePhotoStore {
   restorePose(snap: FacadePoseSnapshot): void;
   /** The journal's `current` read — null unless placed. */
   poseSnapshot(): FacadePoseSnapshot | null;
+  /** F5 — arm a new pair: placed, the apex seated, under the cap → `pairPick: "photo"`; captures
+   *  `pairOrigin` on the first pick. The gizmo op drops to "none" so no handle can steal the globe
+   *  click. No-op (stays idle) when the preconditions fail. */
+  startPairPick(): void;
+  /** F5 — the photo half landed (the overlay's click) → `pairPick: "globe"`. Only from "photo". */
+  setPendingUv(uv: [number, number]): void;
+  /** F5 — the globe half landed (the orchestrator's cast, ENU about `pairOrigin`) → the pair is
+   *  appended, the pick returns to "none". Only from "globe" with a pending uv. */
+  completePair(enu: [number, number, number], target?: string | null): void;
+  /** F5 — abandon the pair in flight (Escape, the panel's ✕) → "none", the pending uv dropped. */
+  cancelPairPick(): void;
+  /** F5 — drop one pair (the solve record stays — the pose is still the solved one). */
+  removePair(index: number): void;
+  /** F5 — drop every pair, the origin and the solve record. */
+  clearPairs(): void;
+  /** F5 — the solve helper's write AFTER `restorePose` (the record block for `alignment.solved`). */
+  _setSolved(solved: FacadeSolved | undefined): void;
 }
 
 const DEFAULT_PROJECTION: FacadeProjection = { enabled: true, strength: 1, ownLight: 0.6, rangeM: null };
@@ -184,6 +229,9 @@ let trickleTimer: ReturnType<typeof setInterval> | undefined;
 let activeAbort: AbortController | undefined;
 let loadSeq = 0;
 
+/** F5 — the pair state a NEW photo (or a cleared draft) starts from. */
+const NO_PAIRS = { pairs: [] as FacadeAlignPair[], pairOrigin: undefined, pairPick: "none" as const, pendingUv: undefined, solved: undefined };
+
 export const useFacadePhotoStore = create<FacadePhotoStore>((set, get) => ({
   open: false,
   phase: "idle",
@@ -192,6 +240,8 @@ export const useFacadePhotoStore = create<FacadePhotoStore>((set, get) => ({
   params: {},
   gizmoOp: "none",
   projection: { ...DEFAULT_PROJECTION },
+  pairs: [],
+  pairPick: "none",
 
   openPanel: () => set({ open: true }),
 
@@ -225,6 +275,7 @@ export const useFacadePhotoStore = create<FacadePhotoStore>((set, get) => ({
       apexAboveGroundM: undefined,
       exifPose: undefined,
       savedFacadeId: undefined,
+      ...NO_PAIRS,
       loadError: undefined,
       decodeError: undefined,
     });
@@ -288,6 +339,7 @@ export const useFacadePhotoStore = create<FacadePhotoStore>((set, get) => ({
       placement: gps,
       textureWidth: extracted.textureWidth ?? extracted.exif.width,
       textureHeight: extracted.textureHeight ?? extracted.exif.height,
+      ...NO_PAIRS, // a new photo's pairs would describe the old one
       loadError: undefined,
       decodeError: extracted.decodeError,
     });
@@ -348,7 +400,10 @@ export const useFacadePhotoStore = create<FacadePhotoStore>((set, get) => ({
 
   backToReview: () =>
     set((s) =>
-      s.phase === "placed" || s.phase === "placing" ? { phase: "review" as const, open: true, gizmoOp: "none" as const } : {},
+      s.phase === "placed" || s.phase === "placing"
+        ? // The pairs survive a trip to REVIEW (they are facts about the buildings); a pick in flight does not.
+          { phase: "review" as const, open: true, gizmoOp: "none" as const, pairPick: "none" as const, pendingUv: undefined }
+        : {},
     ),
 
   cancelPlacing: () => set((s) => (s.phase === "placing" ? { phase: "review" as const, open: true } : {})),
@@ -382,6 +437,7 @@ export const useFacadePhotoStore = create<FacadePhotoStore>((set, get) => ({
       apexAboveGroundM: undefined,
       exifPose: undefined,
       savedFacadeId: undefined,
+      ...NO_PAIRS,
       loadError: undefined,
       decodeError: undefined,
     });
@@ -445,11 +501,54 @@ export const useFacadePhotoStore = create<FacadePhotoStore>((set, get) => ({
       apexAboveGroundM: undefined,
       exifPose: item.exifPose ?? undefined,
       savedFacadeId: item.id,
+      // F5: the row's alignment pairs + the last solve ride back in (a lenient parse — a legacy `{}`
+      // or a malformed column is simply "no pairs"); a pick in flight never survives a re-open.
+      ...NO_PAIRS,
+      ...(() => {
+        const a = parseFacadeAlignment(item.alignment);
+        return a ? { pairs: a.pairs, pairOrigin: a.origin, solved: a.solved } : {};
+      })(),
       loadError: undefined,
       decodeError: undefined,
     });
     tellResidencyEditing(item.id); // the row leaves residency while it is the draft
   },
+
+  startPairPick: () =>
+    set((s) => {
+      if (s.phase !== "placed" || !s.placement || typeof s.apexAltM !== "number" || !Number.isFinite(s.apexAltM)) return {};
+      if (s.pairs.length >= FACADE_PAIRS_MAX) return {};
+      return {
+        pairPick: "photo" as const,
+        pendingUv: undefined,
+        gizmoOp: "none" as const,
+        pairOrigin: s.pairOrigin ?? { lat: s.placement.latDeg, lon: s.placement.lonDeg, altM: s.apexAltM },
+      };
+    }),
+
+  setPendingUv: (uv) =>
+    set((s) => {
+      if (s.pairPick !== "photo" || !uv.every(Number.isFinite)) return {};
+      return { pairPick: "globe" as const, pendingUv: [uv[0], uv[1]] };
+    }),
+
+  completePair: (enu, target) =>
+    set((s) => {
+      if (s.pairPick !== "globe" || !s.pendingUv || !s.pairOrigin || !enu.every(Number.isFinite)) return {};
+      if (s.pairs.length >= FACADE_PAIRS_MAX) return { pairPick: "none" as const, pendingUv: undefined };
+      const pair: FacadeAlignPair = { uv: [s.pendingUv[0], s.pendingUv[1]], enu: [enu[0], enu[1], enu[2]] };
+      if (typeof target === "string" && target.length > 0) pair.target = target;
+      return { pairs: [...s.pairs, pair], pairPick: "none" as const, pendingUv: undefined };
+    }),
+
+  cancelPairPick: () => set((s) => (s.pairPick === "none" && !s.pendingUv ? {} : { pairPick: "none" as const, pendingUv: undefined })),
+
+  removePair: (index) =>
+    set((s) => (index >= 0 && index < s.pairs.length ? { pairs: s.pairs.filter((_, i) => i !== index) } : {})),
+
+  clearPairs: () => set({ ...NO_PAIRS }),
+
+  _setSolved: (solved) => set({ solved }),
 
   restorePose: (snap) =>
     set((s) => {

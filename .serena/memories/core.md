@@ -9,23 +9,20 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-24 (`mem:project/wip-2026-10-24-t195-adr-guide-release`)
-**T195 FIXED (the saved-place pins' drift) · the building-textures ADR FINAL · the guide chapter BUILDING TEXTURES verified + re-shot ·
-T193 / T194 · RELEASED v1.36.43 (2026-10-24b; PR #156 `d4c2b52` landed in 60 s; the live facade verifier 12/12).** PR #155 MERGED (squash `85982df`) — the
-checkout re-seated onto master at boot. **T195's cause was the GROUND SEAT, not the billboard:** a dev probe read the drawn tip against the
-anchor's projection every frame of a drag / coast / walk / look — 0 px; the seat latched the first in-range terrain answer (a coarse tile at
-a high boot: depth 11 → 90.9 m) and never refined (depth 18 → 83.9 m) — the tip 6.9 m + the 2 m lift above the street. Now `lib/geo/terrain.ts`
-`GroundSeat` + `refineGroundSeat` (a real seat moves only to a STRICTLY DEEPER tile; the enriched buildings' `shallowerThanHeld` rule),
-`scene/placeMarkers.ts` takes `ground.sampleAt` (height + depth), seats by place id, `resnap` re-asks every place, `seatOf` DEV seam;
-`PLACEMARKS.liftM` 0.3. The photo pins carry the same latent latch, masked by their viewport re-query (**T196**). Harness
-`verify-owner-asks-2026-10-23.mjs` d1–d6 6/6 (d5 = the owner's flow: a 60 km boot → click → FPV → the seat refines). **The ADR**
-`rendering/ADR_BUILDING_TEXTURES_2026-10-23.md` (80 %): overview · six owner questions (§3) · terms · ONE Mermaid diagram · four flows ·
-a per-number confidence table; `ARCHITECTURE.md` §7g → the as-built summary; `mem:patterns/building-textures`. **The guide:** every label
-matched to the source (7 edits), `upload.webp` (a NEW `upload` recipe, clipped) / `shell-m.webp` / `fpv-map.webp` re-shot, `verify-guide.mjs`
-42/42 at 13 chapters. NEXT: the owner's live read of T195 → F5's pairs UI + SOLVED storage on `lib/geo/pnp.ts` → the ADR's six answers →
-T196 · T184 / T185 · T166 · T165 · T167 · T164.
+## Status — 2026-10-24c (`mem:project/wip-2026-10-24-f5-pairs-ui-exit-view`)
+**F5's PAIRS UI + SOLVED storage BUILT (T172's UI half) · the /m EXIT VIEW rides over the open map — gated (vitest 3,859 / 253 · astro 0/0/29),
+browser 13/13 on dev; the ship + the release follow (read DECISIONS after 2026-10-24c).** The FACADE PHOTO panel's ALIGN TO THE BUILDINGS: + PAIR →
+the photo full-screen → a click → the same point on a building (orbit or FPV; `castFacadePoint`, `tryFacadePairClick` first on both tap paths) →
+SOLVE from 4 pairs (6 releases the lens) = ONE journaled "solve"; the record `alignment = { pairs ≤ 24, origin (the apex at the FIRST pick, fixed),
+solved? }` (`lib/geo/facadeAlign.ts`) rides SAVE / UPDATE; the SERVER stamps `poseSource: "SOLVED"` while the pose equals `solved.pose`
+(`derivePoseSource`, POST + PATCH). Measured: exact pairs → 0 m / 0° / 0.0 px against the real frustum; ORBIT clicks carry 0.17–0.28 m of world
+noise (→ 0.44 m / 0.2° solved), an FPV tap 0.03 m. Escape's ONE owner is the orchestrator. T197 holds the tails (a loupe · real-photo accuracy ·
+lever 3 · the slope settle). NEXT: the owner's live read → the ADR's §3.2–3.6 → T197 · T196 · T166 · T165 · T167 · T164.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
+- **2026-10-24 T195 FIXED (the place pins' GROUND SEAT, not the billboard: a coarse-tile latch; `GroundSeat` + `refineGroundSeat`, a seat moves only
+  to a STRICTLY DEEPER tile; `PLACEMARKS.liftM` 0.3) · the building-textures ADR FINAL · the guide chapter verified + re-shot · T193 / T194 →
+  RELEASED v1.36.43 (2026-10-24b, PR #156)** (`wip-2026-10-24-t195-adr-guide-release`); T196 = the photo pins' same latent latch.
 - **2026-10-23 the five asks T187–T191 + F6 BUILT → v1.36.42; the pure PnP solve** (`wip-2026-10-23-owner-asks-build-t187-t191-f6`):
   T187 the fade 2 → 3 km · T188 G / R / S + the chip rows · T189 pin-glyph places, click → FPV · **T190 textures PUBLIC** (proven live) ·
   T191 the /m LAYERS modal · F6 `PHOTO_PROJECT_LEAN` (K 2 · 1024² · 11.2 MB · the tap peek). 2026-10-23e: the drafts kept, T193 / T194 fixed, T195 recorded.
@@ -69,9 +66,9 @@ T196 · T184 / T185 · T166 · T165 · T167 · T164.
   the public-exposure class (T138/T139) until public launch — the textures carve-out (T190) excepted.
 
 ## Next step
-**The owner's live read of T195 (the pins stand on the street; `seatOf` is the first probe if not) → F5's pairs UI + SOLVED storage on
-`lib/geo/pnp.ts` → the owner's answers to the ADR's six questions (§3: the pairs UI · T192 · a real-phone budget · T184 / T185 · KTX2 · a takedown
-path) → T196 · T166 · T165 · T167 · T164.** Open tails: the lift 0.3 m (my call), the cursor race, the /m LOOK at the apex, the lean numbers are emulated.
+**The release of 2026-10-24c if it has not run (DECISIONS tells) → the owner's live read of the PAIRS flow + the /m EXIT VIEW over the map → the
+ADR's remaining questions (§3.2–3.6: T192 · a real-phone budget · T184 / T185 · KTX2 · a takedown path) → T197 (the loupe first) · T196 · T166 ·
+T165 · T167 · T164.** Open tails: the lift 0.3 m, the cursor race, the /m LOOK at the apex, the lean numbers are emulated, real-photo accuracy (T197b).
 
 ## Era index
 One row per era, oldest first (`07-13-terrain-reseat` = `mem:project/wip-2026-07-13-terrain-reseat`; braces expand).

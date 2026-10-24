@@ -91,6 +91,29 @@ const err = (b: unknown): string | null => {
   return "error" in p ? p.error : null;
 };
 
+/** A solve's output (T172 / F5): a pose off the EXIF baseline with unrounded doubles, and the
+ *  alignment record carrying it verbatim in `solved.pose` (the `alignmentRecordOf` shape). */
+const solvedPose = {
+  lat: 48.464712345678901,
+  lon: 35.046187654321098,
+  altitudeM: 1.6180339887,
+  headingDeg: 217.31415926535897,
+  pitchDeg: 3.2718281828459,
+  rollDeg: -0.41421356237,
+  hFovDeg: 66.6066066066,
+};
+const poseFields = (p: typeof solvedPose) => ({ lat: p.lat, lon: p.lon, altitudeM: p.altitudeM, headingDeg: p.headingDeg, pitchDeg: p.pitchDeg, rollDeg: p.rollDeg, hFovDeg: p.hFovDeg });
+const alignmentWith = (pose: Record<string, unknown>) => ({
+  pairs: [
+    { uv: [0.1, 0.2], enu: [10.5, 20.25, 3], target: "osm:w1" },
+    { uv: [0.9, 0.2], enu: [14.5, 20.25, 3] },
+    { uv: [0.1, 0.8], enu: [10.5, 20.25, 0] },
+    { uv: [0.9, 0.8], enu: [14.5, 22.25, 0] },
+  ],
+  origin: { lat: 48.4647, lon: 35.0462, altM: 112.4 },
+  solved: { pose, rmsPx: 1.25, n: 4, fovSolved: false, planar: false, at: "2026-10-24T10:00:00.000Z" },
+});
+
 const URLS = { displayUrl: DISPLAY_DESCRIPTOR.url, thumbUrl: `${FACADE_URL_PREFIX}${THUMB_ID}` };
 
 describe("the constants", () => {
@@ -282,6 +305,21 @@ describe("derivePoseSource — the D4 badge", () => {
     expect(derivePoseSource({ ...exifPose, hFovDeg: 70 }, exifPose)).toBe("MANUAL");
     expect(derivePoseSource(exifPose, null)).toBe("MANUAL");
   });
+
+  it("SOLVED when the six numbers equal the solve's pose (T172 / F5); one angle 1e-6 off falls back to EXIF / MANUAL; null = the old answers", () => {
+    const posed: FacadePose = { ...exifPose, ...poseFields(solvedPose), apexAltM: 120 };
+    expect(derivePoseSource(posed, exifPose, solvedPose)).toBe("SOLVED");
+    expect(derivePoseSource(posed, null, solvedPose)).toBe("SOLVED");
+    // The heights are not compared (the solve's altitudeM is metres above the ground NOW).
+    expect(derivePoseSource({ ...posed, altitudeM: null, apexAltM: 0 }, exifPose, solvedPose)).toBe("SOLVED");
+    expect(derivePoseSource({ ...posed, headingDeg: posed.headingDeg + 1e-6 }, exifPose, solvedPose)).toBe("MANUAL");
+    // A solve that landed exactly on the EXIF pose: off the solve by 1e-6 but ON the EXIF → EXIF.
+    const onExif = { ...poseFields(solvedPose), lat: exifPose.lat, lon: exifPose.lon, headingDeg: exifPose.headingDeg, pitchDeg: exifPose.pitchDeg, rollDeg: exifPose.rollDeg + 1e-6, hFovDeg: exifPose.hFovDeg };
+    expect(derivePoseSource(exifPose, exifPose, onExif)).toBe("EXIF");
+    expect(derivePoseSource(posed, exifPose, null)).toBe("MANUAL");
+    expect(derivePoseSource(posed, exifPose, undefined)).toBe("MANUAL");
+    expect(derivePoseSource(exifPose, exifPose, null)).toBe("EXIF");
+  });
 });
 
 describe("facadeRecord", () => {
@@ -320,6 +358,23 @@ describe("facadeRecord", () => {
     const noThumb = facadeRecord(parse(validBody), "m", { displayUrl: URLS.displayUrl, thumbUrl: null });
     expect(noThumb.thumbFileId).toBeNull();
     expect(noThumb.thumbUrl).toBeNull();
+  });
+
+  it("SOLVED when the body's pose equals its alignment's solved.pose; the alignment JSON round-trips; a NaN / missing solve field is not SOLVED", () => {
+    const alignment = alignmentWith(poseFields(solvedPose));
+    const row = facadeRecord(parse({ ...validBody, ...poseFields(solvedPose), alignment }), "m", URLS);
+    expect(row.poseSource).toBe("SOLVED");
+    expect(JSON.parse(row.alignment as string)).toEqual(alignment);
+    expect(facadeListItem({ ...row, _id: "f9", _updatedDate: "2026-10-24T10:00:00.000Z", _createdDate: "2026-10-24T10:00:00.000Z" })?.alignment).toEqual(alignment);
+    // The solve is a different pose than the body → the old rule (off the EXIF → MANUAL).
+    expect(facadeRecord(parse({ ...validBody, ...poseFields(solvedPose), headingDeg: 1, alignment }), "m", URLS).poseSource).toBe("MANUAL");
+    // A broken solve block never stamps SOLVED (NaN does not survive JSON — the parse sees null / a missing key).
+    const { hFovDeg: _h, ...noFov } = poseFields(solvedPose);
+    expect(facadeRecord(parse({ ...validBody, ...poseFields(solvedPose), alignment: alignmentWith(noFov) }), "m", URLS).poseSource).toBe("MANUAL");
+    expect(facadeRecord({ ...parse({ ...validBody, ...poseFields(solvedPose) }), alignment: alignmentWith({ ...poseFields(solvedPose), pitchDeg: Number.NaN }) }, "m", URLS).poseSource).toBe("MANUAL");
+    expect(facadeRecord(parse({ ...validBody, ...poseFields(solvedPose), alignment: alignmentWith({ ...poseFields(solvedPose), rollDeg: "0" }) }), "m", URLS).poseSource).toBe("MANUAL");
+    // The fixture's `{ pairs: [] }` / `{}` carry no solve: EXIF as before.
+    expect(facadeRecord(parse({ ...validBody, alignment: {} }), "m", URLS).poseSource).toBe("EXIF");
   });
 });
 
@@ -416,6 +471,26 @@ describe("applyFacadeUpdate — read-modify-write", () => {
     expect(JSON.parse(record.targetFeatureIds as string)).toEqual(["osm:9"]);
     expect(JSON.parse(record.alignment as string)).toEqual(validBody.alignment);
     expect(record.poseSource).toBe("EXIF"); // a seat edit is not a pose edit
+  });
+
+  it("SOLVED (T172 / F5): pose + a matching alignment.solved → SOLVED; a later nudge → MANUAL; a title edit keeps it", () => {
+    const solved = applyFacadeUpdate(storedRow(), { ...poseFields(solvedPose), alignment: alignmentWith(poseFields(solvedPose)) }).record;
+    expect(solved.poseSource).toBe("SOLVED");
+    expect(JSON.parse(solved.alignment as string)).toEqual(alignmentWith(poseFields(solvedPose)));
+    // The stored alignment (parsed off the JSON column) is the effective one on a later edit.
+    const nudged = applyFacadeUpdate(solved, { headingDeg: solvedPose.headingDeg + 0.5 }).record;
+    expect(nudged.poseSource).toBe("MANUAL");
+    expect(applyFacadeUpdate(nudged, { headingDeg: solvedPose.headingDeg }).record.poseSource).toBe("SOLVED");
+    expect(applyFacadeUpdate(solved, { title: "Renamed" }).record.poseSource).toBe("SOLVED");
+  });
+
+  it("an alignment-only patch re-stamps against the STORED pose: a solve equal to it → SOLVED, any other → MANUAL", () => {
+    const moved = applyFacadeUpdate(storedRow(), poseFields(solvedPose)).record;
+    expect(moved.poseSource).toBe("MANUAL");
+    expect(applyFacadeUpdate(moved, { alignment: alignmentWith(poseFields(solvedPose)) }).record.poseSource).toBe("SOLVED");
+    expect(applyFacadeUpdate(moved, { alignment: alignmentWith({ ...poseFields(solvedPose), pitchDeg: 9 }) }).record.poseSource).toBe("MANUAL");
+    // On an untouched EXIF row a non-matching solve leaves the EXIF badge.
+    expect(applyFacadeUpdate(storedRow(), { alignment: alignmentWith(poseFields(solvedPose)) }).record.poseSource).toBe("EXIF");
   });
 });
 

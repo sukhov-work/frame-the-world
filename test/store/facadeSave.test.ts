@@ -539,3 +539,22 @@ describe("the target probe (T172 / F5) — pulled once per write, right before t
     expect(media.patchFacadeRecord.mock.calls[0][0].snapshot.targetFeatureIds).toEqual(["osm:w1"]);
   });
 });
+
+describe("F5 (T172, 2026-10-24) — the alignment record rides the snapshot", () => {
+  it("the save snapshot carries the pairs + origin as `alignment`; without pairs it is `{}` (the store's state is the truth — a CLEAR + UPDATE wipes a stored set)", async () => {
+    placeDraft();
+    await save().saveFacade();
+    expect(body.buildSaveFacadeBody.mock.calls[0][0].alignment).toEqual({});
+    f().startPairPick();
+    f().setPendingUv([0.25, 0.5]);
+    f().completePair([3.123456, -2.5, 4.0004], "osm:w1");
+    f()._setSolved({ pose: f().poseSnapshot()!, rmsPx: 0.7, n: 1, fovSolved: false, planar: true, at: "2026-10-24T12:00:00.000Z" });
+    await save().updateFacade();
+    const snap = body.buildUpdateFacadeBody.mock.calls.at(-1)![0];
+    expect(snap.alignment).toEqual({
+      pairs: [{ uv: [0.25, 0.5], enu: [3.123, -2.5, 4], target: "osm:w1" }],
+      origin: { lat: 48.4647, lon: 35.0462, altM: 101.5 },
+      solved: { pose: f().poseSnapshot(), rmsPx: 0.7, n: 1, fovSolved: false, planar: true, at: "2026-10-24T12:00:00.000Z" },
+    });
+  });
+});

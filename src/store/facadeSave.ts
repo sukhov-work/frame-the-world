@@ -24,6 +24,7 @@ import { create } from "zustand";
  */
 
 import { probeFacadeTargets } from "../lib/globe/facadeTargets";
+import { alignmentRecordOf } from "../lib/geo/facadeAlign";
 import { buildSaveFacadeBody, buildUpdateFacadeBody, type FacadeSnapshot } from "../lib/save/facadeBody";
 import { titleFromFileName } from "../lib/save/pinBody";
 import { useFacadePhotoStore, type FacadePhotoStore } from "./facadePhoto";
@@ -118,6 +119,11 @@ function snapshotOf(f: FacadePhotoStore, apexAltM: number, title: string | null)
     apexAltM,
     exifPose: f.exifPose ?? null,
     title,
+    // F5 (T172): the alignment pairs + the last solve ride every SAVE / UPDATE. `{}` when the store
+    // holds no pairs ON PURPOSE: the store hydrated the row's pairs at open, so its state IS the
+    // truth — a member who CLEARED them and UPDATEs must see them gone on the next open (the
+    // "carry only when non-null" body rule exists for callers that never knew the row's pairs).
+    alignment: alignmentRecordOf(f.pairs, f.pairOrigin, f.solved) ?? {},
   };
 }
 

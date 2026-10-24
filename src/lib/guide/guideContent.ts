@@ -1717,24 +1717,30 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
         id: "facade-align",
         title: "Fit the texture to the wall",
         where: { desktop: "The FACADE PHOTO panel, left of the globe, while a texture is placed" },
-        keys: ["camera pose", "heading slider", "roll", "nudge position", "own light", "strength", "project on buildings"],
+        keys: ["camera pose", "heading slider", "roll", "nudge position", "own light", "strength", "project on buildings", "align pairs", "solve pose"],
         body:
           "CAMERA POSE holds the camera the photo was taken with: HEADING, PITCH, ROLL, LENS · H-FOV " +
           "and ALTITUDE in metres above the ground. Double-click a slider to put it back to the " +
           "photo's own value; RESET TO EXIF puts every one back. NUDGE POSITION walks the camera " +
           "spot in half-metre, metre or five-metre steps with N ▲ S ▼ W ◀ E ▶. The gizmo on the " +
           "globe does the same by dragging: MOVE slides the camera, ROTATE turns it, SCALE widens " +
-          "or narrows the field of view and never stretches the photo.",
+          "or narrows the field of view and never stretches the photo. ALIGN TO THE BUILDINGS " +
+          "fits the pose from point pairs instead of by hand: + PAIR opens the photo large, you " +
+          "click a point on it, then the same point on a building on the globe; four pairs let " +
+          "SOLVE compute the camera spot and its angles, six also the lens when ALSO SOLVE THE " +
+          "LENS is ticked.",
         list: [
+          "Each pair shows how far off it still sits, in photo pixels, under the current pose.",
           "PROJECT ON BUILDINGS — turn the paint off to see the bare buildings under it.",
           "STRENGTH — how much of the wall the photo replaces.",
           "OWN LIGHT — 0 lights the photo by the scene's sun, 100 keeps the photo's own colours; it starts at 60.",
           "PLANE — the preview frame in front of the camera; 0 hides it.",
-          "Everything works in orbit and in [[fpv|first-person view]] alike.",
+          "Everything works in orbit and in [[fpv|first-person view]] alike — pick the building points standing at the wall in first-person view for the most exact fit.",
+          "Pairs on one flat wall cannot tell a sideways step from a turn, nor a zoom from a step back: add a corner or a point on a nearer wall.",
         ],
         tip:
-          "Only gizmo drags and the chip's ↺ can be undone — a slider or a nudge cannot, so drag " +
-          "when you are unsure.",
+          "Gizmo drags, the chip's ↺ and a SOLVE can be undone — a slider or a nudge cannot, so drag " +
+          "when you are unsure. A solved pose shows SOLVED on its rows and in MY CONTENT until you nudge it again.",
       },
       {
         id: "facade-chip",

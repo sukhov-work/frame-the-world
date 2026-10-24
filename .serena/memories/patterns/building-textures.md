@@ -20,7 +20,21 @@ Design record: `.claude/claude-docs/rendering/ADR_BUILDING_TEXTURES_2026-10-23.m
 - **Save walk** (`store/facadeSave.ts`): original TUS private (failure = warning) → derivatives client-side → display PUT (required)
   → thumb PUT (degrades) → 7 × 5 ray-grid `targetFeatureIds` → POST; re-POST on 409 `FILE_NOT_READY` 6 × 1.5 s (T194).
 
+- **Alignment from point pairs (F5's UI half, 2026-10-24c — `lib/geo/facadeAlign.ts` + `panels/FacadeAlignSection.tsx`):** the panel's ALIGN
+  TO THE BUILDINGS pairs a photo point (a click on the full-screen photo → uv, u right / v DOWN) with a building point (the orchestrator's
+  `castFacadePoint` on the orbit AND FPV tap paths → ECEF → ENU about the record's origin); `solveFacadeDraft` feeds `solveFacadePose` with
+  the draft's pose as the second start and writes ONE journaled "solve" through `restorePose`. The record `alignment = { pairs ≤ 24, origin:
+  the apex at the FIRST pick (FIXED — a building point is absolute), solved?: { pose (the exact snapshot), rmsPx, n, fovSolved, planar, at } }`
+  rides SAVE / UPDATE only when it holds pairs; the SERVER stamps `poseSource: "SOLVED"` while the saved pose equals `solved.pose`
+  (`derivePoseSource`). The snapshot's `altitudeM` = the solved ellipsoidal apex − the ground under the draft NOW (a MANUAL altitude is metres
+  above the rendered ground). Measured on dev: exact pairs 0 m / 0° / 0.0 px against the real frustum; ORBIT clicks carry 0.17–0.28 m of world
+  noise each (→ 0.44 m / 0.2°), an FPV tap 0.03 m — pick standing at the wall (T197: a loupe).
+
 ## Traps
+- A FRONTO-PARALLEL wall cannot pin the field of view (zoom ↔ distance — the dolly-zoom) nor yaw against a sideways step: `facadePairsPlanar`
+  → the panel's flat-wall note; a corner / a nearer point breaks both ties.
+- Escape for a pair pick has ONE owner — the orchestrator (before FPV unwinds); a second listener in the panel races it and exits FPV.
+- `startPairPick` drops the gizmo op: `onFacadeGizmoDown` runs in the capture phase and would steal the globe click from a handle.
 - three's texture-cache KEY includes mips / filters / anisotropy: set before allocation, never after (a change drops every layer);
   never `needsUpdate` the array after allocation.
 - A non-ShaderMaterial uploads uniforms only on a material / program / camera switch: never write a per-draw uniform (T165).

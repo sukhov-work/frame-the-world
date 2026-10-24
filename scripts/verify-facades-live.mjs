@@ -14,6 +14,8 @@
 //   6  GET /api/facades (MY FACADES) lists it
 //   7  GET /api/facades?cells=<gh5 of the pose> lists it (C6-slim row) · a far cell does not
 //   8  PATCH lon + 0.0002 / title → the new lon · poseSource MANUAL · GET reflects it
+//  8b  PATCH a pose + a matching alignment.solved → poseSource SOLVED (F5, 2026-10-24c) · a nudge
+//      after → MANUAL, the alignment kept (dev cannot elevate — the stamp is provable only here)
 //   9  (optional, FTW_LIVE_DOM=1 + a CDP Chrome on FTW_CDP_PORT, default 9333) the deployed UI:
 //      MENU → MY CONTENT → TEXTURES row → OPEN → the saved panel (UPDATE + DELETE) → screenshot
 //  10  DELETE (JSON content type) → { deleted: true } · again → 404 · GET no longer lists it
@@ -443,6 +445,50 @@ try {
       if (!g.ok) fails.push(`GET row ${g.row ? `lon ${g.row.lon} title ${g.row.title}` : "missing"}`);
       else if (g.row.poseSource !== "MANUAL") fails.push(`GET poseSource ${g.row.poseSource}`);
       return { pass: fails.length === 0, detail: fmt(fails, `lon ${newLon.toFixed(4)} · "${TITLE2}" · MANUAL · GET agrees`) };
+    },
+    { needs: needRow },
+  );
+
+  // ═══ 8b · THE SOLVED STAMP (F5, 2026-10-24c) ═════════════════════════════════════════════════
+  // The server stamps `poseSource: "SOLVED"` while the saved pose equals `alignment.solved.pose`
+  // (`derivePoseSource`); a later pose nudge without a new solve reads MANUAL again. Dev cannot
+  // elevate (T173), so this is the ONLY place the stamp is provable.
+  const solvedHeading = POSE.headingDeg + 2;
+  await runLeg(
+    "8b",
+    "PATCH a pose + a matching alignment.solved → poseSource SOLVED (GET agrees); a nudge after → MANUAL, the alignment kept",
+    async () => {
+      const fails = [];
+      const solvedPose = { lat: POSE.lat, lon: newLon, altitudeM: null, headingDeg: solvedHeading, pitchDeg: POSE.pitchDeg, rollDeg: POSE.rollDeg, hFovDeg: POSE.hFovDeg };
+      const alignment = {
+        pairs: [
+          { uv: [0.2, 0.3], enu: [-4.1, 22.5, 3.2], target: "osm:w1" },
+          { uv: [0.8, 0.3], enu: [4.2, 22.4, 3.1], target: "osm:w1" },
+          { uv: [0.8, 0.7], enu: [4.2, 22.4, -1.6] },
+          { uv: [0.2, 0.7], enu: [-4.1, 22.5, -1.5] },
+        ],
+        origin: { lat: POSE.lat, lon: POSE.lon, altM: POSE.apexAltM },
+        solved: { pose: solvedPose, rmsPx: 0.9, n: 4, fovSolved: false, planar: true, at: new Date().toISOString() },
+      };
+      const r = await api("PATCH", "/api/facades", { body: { facadeId: createdId, headingDeg: solvedHeading, alignment } });
+      const f = r.json?.facade;
+      if (r.status !== 200) fails.push(`${r.status} ${r.text}`);
+      if (f && f.poseSource !== "SOLVED") fails.push(`answer poseSource ${f.poseSource} (want SOLVED)`);
+      if (f && !near(f.headingDeg, solvedHeading, 1e-9)) fails.push(`answer heading ${f.headingDeg}`);
+      if (f && f.alignment?.solved?.pose?.headingDeg !== solvedHeading) fails.push(`answer alignment ${JSON.stringify(f.alignment).slice(0, 120)}`);
+      const g = await poll(async () => {
+        const row = ((await listMine()) ?? []).find((x) => x.id === createdId);
+        return { ok: !!row && row.poseSource === "SOLVED" && near(row.headingDeg, solvedHeading, 1e-9), row };
+      });
+      if (!g.ok) fails.push(`GET ${g.row ? `poseSource ${g.row.poseSource} heading ${g.row.headingDeg}` : "row missing"}`);
+      else if ((g.row.alignment?.pairs ?? []).length !== 4) fails.push(`GET alignment pairs ${(g.row.alignment?.pairs ?? []).length}`);
+      // The nudge: a pose PATCH without a new solve → MANUAL; the stored alignment is untouched.
+      const r2 = await api("PATCH", "/api/facades", { body: { facadeId: createdId, headingDeg: solvedHeading + 0.5 } });
+      const f2 = r2.json?.facade;
+      if (r2.status !== 200) fails.push(`nudge ${r2.status} ${r2.text}`);
+      if (f2 && f2.poseSource !== "MANUAL") fails.push(`after the nudge poseSource ${f2.poseSource} (want MANUAL)`);
+      if (f2 && (f2.alignment?.pairs ?? []).length !== 4) fails.push(`the nudge dropped the alignment (${JSON.stringify(f2.alignment).slice(0, 80)})`);
+      return { pass: fails.length === 0, detail: fmt(fails, `SOLVED at heading ${solvedHeading} · GET agrees with 4 pairs · the nudge → MANUAL, the alignment kept`) };
     },
     { needs: needRow },
   );

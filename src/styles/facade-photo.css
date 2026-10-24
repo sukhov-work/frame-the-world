@@ -187,3 +187,175 @@
   letter-spacing: 0.1em;
   color: var(--color-text-secondary);
 }
+
+/* F5 (T172, 2026-10-24) — ALIGN TO THE BUILDINGS: the photo thumbnail with the picked pairs as
+   numbered dots (the frame is sized to the photo's aspect inline, so a dot at u·100% / v·100%
+   lands on the image), the pairs list, the SOLVE row and the status lines. */
+.ff-align {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ff-align__count {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}
+.ff-align__frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-surface-2);
+  cursor: crosshair;
+}
+.ff-align__frame:hover {
+  border-color: var(--color-accent);
+}
+.ff-align__frame.is-blocked {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.ff-align__thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+}
+.ff-align__dot {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  border: 1px solid var(--color-bg);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  line-height: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+.ff-align__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+.ff-align__row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto 56px 18px;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+.ff-align__n {
+  color: var(--color-accent);
+}
+.ff-align__key {
+  color: var(--color-text-muted);
+}
+.ff-align__res {
+  text-align: right;
+  color: var(--color-text);
+}
+.ff-align__remove {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.ff-align__remove:hover {
+  color: var(--color-warn);
+}
+.ff-align__ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ff-align__ctl .pd-tier[aria-disabled="true"],
+.ff-align__ctl .pd-tier:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ff-align__fov {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}
+.ff-align__fov input {
+  accent-color: var(--color-accent);
+}
+.ff-align__fov.is-off {
+  opacity: 0.4;
+}
+.ff-align__status {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--color-text-secondary);
+}
+.ff-align__status.is-ok {
+  color: var(--color-accent);
+}
+.ff-align__status.is-warn {
+  color: var(--color-warn);
+}
+
+/* F5 — the PHOTO pick overlay: a dim scrim, the photo large and centred. The <img>'s own box IS
+   the photo (aspect + width inline, object-fit fill — no letterbox), so a click's uv is read off
+   its rect; the dots ride the figure, which shrink-wraps the image. */
+.ff-pick {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  backdrop-filter: blur(4px);
+  color: var(--color-text);
+}
+.ff-pick__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+.ff-pick__frame {
+  position: relative;
+  margin: 0;
+  width: fit-content;
+  line-height: 0;
+}
+.ff-pick__img {
+  display: block;
+  height: auto;
+  max-width: 92vw;
+  max-height: 82vh;
+  object-fit: fill;
+  outline: 1px solid var(--color-border); /* an outline (outside the rect), never a border */
+  cursor: crosshair;
+  user-select: none;
+}
+.ff-pick .ff-align__dot {
+  line-height: 12px;
+}

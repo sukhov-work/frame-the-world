@@ -111,6 +111,24 @@ body.mw-open .m-joy,
 body.mw-open .m-altcol {
   z-index: 24;
 }
+/* Owner ask 2026-10-24: ✕ EXIT VIEW rides over the open fullscreen map too — before it, leaving
+   FPV from the map took two taps (close the map, then EXIT VIEW). The WHOLE rail rides z 24, not
+   the one cell: EXIT VIEW is the stack's last flex child, and only the stack's own layout holds
+   its seat. The other cells go `visibility: hidden`, never `display: none` — they keep their
+   boxes, so EXIT VIEW does not move between map-closed and map-open. The container turns
+   click-through (it is as wide as the EXIT VIEW pill, so its gaps and the strip beside the 44 px
+   icon cells would swallow map taps at z 24); only EXIT VIEW takes the tap. The handler closes
+   the map first (SceneActions). */
+body.m.mw-open .m-actions {
+  z-index: 24;
+  pointer-events: none;
+}
+body.m.mw-open .m-actions > .m-act:not(.m-act--exit) {
+  visibility: hidden;
+}
+body.m.mw-open .m-actions > .m-act--exit {
+  pointer-events: auto;
+}
 /* 2026-09-08b: the AR note floats exactly where the map's RE-CENTRE target seats (it reads
    `--m-altcol-h` and sits just above the column) — while the map is open it yields to it. The
    chip itself stays reachable; the bubble returns when the map closes. */

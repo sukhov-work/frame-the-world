@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PhotoExif } from "../../../src/lib/decode/extract";
 import { derivedFov, effectiveHFovDeg, exifBaselineParams } from "../../../src/lib/decode/params";
+import { alignmentRecordOf } from "../../../src/lib/geo/facadeAlign";
 import { buildSaveFacadeBody, buildUpdateFacadeBody, exifPoseOf, type FacadeSnapshot } from "../../../src/lib/save/facadeBody";
 import { parseSaveFacadeBody, parseUpdateFacadeBody } from "../../../src/lib/wix/facadeRecords";
 
@@ -192,7 +193,7 @@ describe("the target seats (T172 / F5) — the probe's buildings ride the bodies
     expect(parsed.body.targetFeatureIds).toEqual(ids);
   });
 
-  it("the update body carries them ONLY when non-empty — an empty / null probe keeps the stored set; alignment never", () => {
+  it("the update body carries them ONLY when non-empty — an empty / null probe keeps the stored set", () => {
     const body = buildUpdateFacadeBody({ ...snapshot, targetFeatureIds: ids }, "f1");
     expect(body.targetFeatureIds).toEqual(ids);
     expect("alignment" in body).toBe(false);
@@ -201,5 +202,47 @@ describe("the target seats (T172 / F5) — the probe's buildings ride the bodies
     expect(parsed.body.targetFeatureIds).toEqual(ids);
     expect("targetFeatureIds" in buildUpdateFacadeBody({ ...snapshot, targetFeatureIds: [] }, "f1")).toBe(false);
     expect("targetFeatureIds" in buildUpdateFacadeBody({ ...snapshot, targetFeatureIds: null }, "f1")).toBe(false);
+  });
+});
+
+describe("T172 (F5) alignment — the point pairs + the last solve", () => {
+  const origin = { lat: 48.4647, lon: 35.0462, altM: 112.4 };
+  const pairs = [
+    { uv: [0.1234567891, 0.2] as [number, number], enu: [10.12345, 20.5, 3.0001] as [number, number, number], target: "osm:w12" },
+    { uv: [0.9, 0.2] as [number, number], enu: [14.5, 20.25, 3] as [number, number, number] },
+    { uv: [0.1, 0.8] as [number, number], enu: [10.5, 20.25, 0] as [number, number, number] },
+    { uv: [0.9, 0.8] as [number, number], enu: [14.5, 22.25, 0] as [number, number, number] },
+  ];
+  const solved = {
+    pose: { lat: 48.464712345678901, lon: 35.046187654321098, altitudeM: 1.6180339887, headingDeg: 217.31415926535897, pitchDeg: 3.2718281828459, rollDeg: -0.41421356237, hFovDeg: 66.6066066066 },
+    rmsPx: 0.8,
+    n: 4,
+    fovSolved: false,
+    planar: true,
+    at: "2026-10-24T10:00:00.000Z",
+  };
+  const record = alignmentRecordOf(pairs, origin, solved);
+
+  it("the save body sends {} when none and the object when given", () => {
+    expect(buildSaveFacadeBody(snapshot, files).alignment).toEqual({});
+    expect(buildSaveFacadeBody({ ...snapshot, alignment: null }, files).alignment).toEqual({});
+    expect(buildSaveFacadeBody({ ...snapshot, alignment: record }, files).alignment).toBe(record);
+  });
+
+  it("the update body carries alignment ONLY when the snapshot has one — a re-save without pairs never wipes a stored set", () => {
+    expect("alignment" in buildUpdateFacadeBody(snapshot, "f1")).toBe(false);
+    expect("alignment" in buildUpdateFacadeBody({ ...snapshot, alignment: null }, "f1")).toBe(false);
+    expect(buildUpdateFacadeBody({ ...snapshot, alignment: record }, "f1").alignment).toBe(record);
+  });
+
+  it("a real alignmentRecordOf record round-trips through both server parsers, the solved pose byte-exact", () => {
+    expect(record).not.toBeNull();
+    const up = parseUpdateFacadeBody(JSON.parse(JSON.stringify(buildUpdateFacadeBody({ ...snapshot, alignment: record }, "f1"))));
+    if ("error" in up) throw new Error(up.error);
+    expect(up.body.alignment).toEqual(record);
+    const save = parseSaveFacadeBody(JSON.parse(JSON.stringify(buildSaveFacadeBody({ ...snapshot, alignment: record }, files))));
+    if ("error" in save) throw new Error(save.error);
+    expect(save.body.alignment).toEqual(record);
+    expect((save.body.alignment.solved as { pose: unknown }).pose).toEqual(solved.pose);
   });
 });

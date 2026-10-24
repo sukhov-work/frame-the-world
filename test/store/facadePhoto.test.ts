@@ -597,3 +597,164 @@ describe("isolation fences (zero regression to the upload/pin flow)", () => {
     expect(read("src/pages/m.astro")).not.toMatch(/FacadePhotoFlow/);
   });
 });
+
+describe("F5 — the alignment PAIRS + the pick state machine (T172, 2026-10-24)", () => {
+  const UV: [number, number] = [0.25, 0.6];
+  const ENU: [number, number, number] = [3.5, 24.2, 6.1];
+
+  it("boots with no pairs, no origin, an idle pick, no solve", () => {
+    expect(s().pairs).toEqual([]);
+    expect(s().pairOrigin).toBeUndefined();
+    expect(s().pairPick).toBe("none");
+    expect(s().pendingUv).toBeUndefined();
+    expect(s().solved).toBeUndefined();
+  });
+
+  it("startPairPick needs a placed, SEATED draft — and captures the origin at the apex once", () => {
+    s().ingest(extracted(EXIF_GPS));
+    s().startPairPick(); // review, not placed
+    expect(s().pairPick).toBe("none");
+    s().place();
+    s().startPairPick(); // placed but the apex is not seated yet
+    expect(s().pairPick).toBe("none");
+    expect(s().pairOrigin).toBeUndefined();
+    s()._syncApex(101.5, 1.7);
+    s().setGizmoOp("move");
+    s().startPairPick();
+    expect(s().pairPick).toBe("photo");
+    expect(s().gizmoOp).toBe("none"); // no handle may steal the globe click
+    expect(s().pairOrigin).toEqual({ lat: EXIF_GPS.gpsLat, lon: EXIF_GPS.gpsLon, altM: 101.5 });
+    // A second pick after a move keeps the FIRST origin (a building point is absolute).
+    s().setPendingUv(UV);
+    s().completePair(ENU, "osm:w1");
+    s().nudgePlacement(10, 10);
+    s()._syncApex(104, 1.7);
+    s().startPairPick();
+    expect(s().pairOrigin).toEqual({ lat: EXIF_GPS.gpsLat, lon: EXIF_GPS.gpsLon, altM: 101.5 });
+  });
+
+  it("photo → globe → the pair appends with its target; the pick returns to idle", () => {
+    placedAndSeated();
+    s().completePair(ENU); // nothing in flight — ignored
+    expect(s().pairs).toEqual([]);
+    s().setPendingUv(UV); // not armed — ignored
+    expect(s().pairPick).toBe("none");
+    s().startPairPick();
+    s().completePair(ENU); // the photo half is missing — ignored
+    expect(s().pairs).toEqual([]);
+    s().setPendingUv(UV);
+    expect(s().pairPick).toBe("globe");
+    expect(s().pendingUv).toEqual(UV);
+    s().completePair(ENU, "osm:w132547176");
+    expect(s().pairs).toEqual([{ uv: UV, enu: ENU, target: "osm:w132547176" }]);
+    expect(s().pairPick).toBe("none");
+    expect(s().pendingUv).toBeUndefined();
+    // A pair without a building key (a terrain hit) carries no `target` at all.
+    s().startPairPick();
+    s().setPendingUv([0.5, 0.5]);
+    s().completePair([1, 2, 3], null);
+    expect(s().pairs[1]).toEqual({ uv: [0.5, 0.5], enu: [1, 2, 3] });
+    expect("target" in s().pairs[1]).toBe(false);
+  });
+
+  it("cancel drops the half in flight from either state; NaN halves are refused", () => {
+    placedAndSeated();
+    s().startPairPick();
+    s().cancelPairPick();
+    expect(s().pairPick).toBe("none");
+    s().startPairPick();
+    s().setPendingUv([Number.NaN, 0.5]);
+    expect(s().pairPick).toBe("photo"); // refused
+    s().setPendingUv(UV);
+    s().cancelPairPick();
+    expect(s().pairPick).toBe("none");
+    expect(s().pendingUv).toBeUndefined();
+    expect(s().pairs).toEqual([]);
+    s().startPairPick();
+    s().setPendingUv(UV);
+    s().completePair([Number.NaN, 0, 0]);
+    expect(s().pairs).toEqual([]);
+    expect(s().pairPick).toBe("globe"); // still waiting for a real point
+  });
+
+  it("removePair / clearPairs; the cap refuses the 25th pair", () => {
+    placedAndSeated();
+    for (let i = 0; i < 30; i++) {
+      s().startPairPick();
+      s().setPendingUv([i / 30, 0.5]);
+      s().completePair([i, 0, 0]);
+    }
+    expect(s().pairs.length).toBe(24);
+    expect(s().pairPick).toBe("none");
+    s().removePair(0);
+    expect(s().pairs.length).toBe(23);
+    expect(s().pairs[0].enu).toEqual([1, 0, 0]);
+    s().removePair(99); // out of range — ignored
+    expect(s().pairs.length).toBe(23);
+    s()._setSolved({ pose: s().poseSnapshot()!, rmsPx: 1.2, n: 23, fovSolved: false, planar: true, at: "2026-10-24T00:00:00.000Z" });
+    s().removePair(0); // a removal keeps the solve record (the pose is still the solved one)
+    expect(s().solved?.n).toBe(23);
+    s().clearPairs();
+    expect(s().pairs).toEqual([]);
+    expect(s().pairOrigin).toBeUndefined();
+    expect(s().solved).toBeUndefined();
+  });
+
+  it("a pick in flight does not survive REVIEW; the pairs do; a new photo and clear() drop everything", () => {
+    placedAndSeated();
+    s().startPairPick();
+    s().setPendingUv(UV);
+    s().completePair(ENU);
+    s().startPairPick();
+    s().backToReview();
+    expect(s().pairPick).toBe("none");
+    expect(s().pairs.length).toBe(1);
+    expect(s().pairOrigin).toBeDefined();
+    s().place();
+    expect(s().pairs.length).toBe(1);
+    s().ingest(extracted(EXIF_GPS)); // a new photo
+    expect(s().pairs).toEqual([]);
+    expect(s().pairOrigin).toBeUndefined();
+    placedAndSeated();
+    s().startPairPick();
+    s().setPendingUv(UV);
+    s().completePair(ENU);
+    s().clear();
+    expect(s().pairs).toEqual([]);
+    expect(s().pairPick).toBe("none");
+  });
+
+  it("openSaved hydrates the row's pairs, origin and solve; a legacy `{}` or garbage is simply no pairs", () => {
+    const solved = { pose: { ...SAVED_POSE, altitudeM: 1.7 }, rmsPx: 0.8, n: 6, fovSolved: true, planar: false, at: "2026-10-24T10:00:00.000Z" };
+    const alignment = {
+      pairs: [
+        { uv: [0.1, 0.2], enu: [1, 2, 3], target: "osm:w1" },
+        { uv: [0.3, 0.4], enu: [4, 5, 6] },
+        { uv: ["x", 0.4], enu: [4, 5, 6] }, // malformed — dropped
+      ],
+      origin: { lat: 48.4651, lon: 35.047, altM: 101.2 },
+      solved,
+    };
+    s().openSaved({ ...ITEM, alignment });
+    expect(s().pairs).toEqual([
+      { uv: [0.1, 0.2], enu: [1, 2, 3], target: "osm:w1" },
+      { uv: [0.3, 0.4], enu: [4, 5, 6] },
+    ]);
+    expect(s().pairOrigin).toEqual({ lat: 48.4651, lon: 35.047, altM: 101.2 });
+    expect(s().solved).toEqual({
+      pose: { lat: SAVED_POSE.lat, lon: SAVED_POSE.lon, altitudeM: 1.7, headingDeg: SAVED_POSE.headingDeg, pitchDeg: SAVED_POSE.pitchDeg, rollDeg: SAVED_POSE.rollDeg, hFovDeg: SAVED_POSE.hFovDeg },
+      rmsPx: 0.8,
+      n: 6,
+      fovSolved: true,
+      planar: false,
+      at: "2026-10-24T10:00:00.000Z",
+    });
+    expect(s().pairPick).toBe("none");
+    s().openSaved({ ...ITEM, alignment: {} });
+    expect(s().pairs).toEqual([]);
+    expect(s().pairOrigin).toBeUndefined();
+    expect(s().solved).toBeUndefined();
+    s().openSaved({ ...ITEM, alignment: { pairs: "nope", origin: null } as unknown as Record<string, unknown> });
+    expect(s().pairs).toEqual([]);
+  });
+});

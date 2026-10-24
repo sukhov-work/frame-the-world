@@ -40,6 +40,7 @@ the `/m` redirect; new 2026-08-15).
 `__globe __renderer __composer __quality __globeQuality __mapWindowView __overlayRebuilds
 __pipCache __frameGate __cameraStore __timeStore __uploadStore __pinsStore __memberStore
 - `window.__facadeStore` (2026-10-18) — the facade-photo store (the photo flow (b) prototype); `window.__globe.facadeFrustum` + `__globe.photoProjector()` — the facade frustum handle and the projector's live snapshot (`verify-photo-projection-2026-10-18.mjs`).
+- `window.__globe.facadeAlign()` (2026-10-24c, F5) — the pairs' DEV seam: `pick` / `pairs` / `origin`, `castAt(clientX, clientY)` (the globe half's cast under a client point: `{ ecef, target }` or null), `castUv(u, v)` (the placed frustum's own ray through a photo uv against the buildings — a harness's ground truth), `screenOf(ecef)` (client px or null behind the camera), `enuOf(ecef)` (about the record's origin). Driver: `verify-facade-align-2026-10-24.mjs` (dev).
 - `window.__facadeSaveStore` + `window.__facadesStore` (2026-10-22, F2 / F3) — the facade save walk (`saveFacade / updateFacade / deleteFacade`, the phase) and the saved rows (`mine`, `world`, `cover`, `editingId`); `__globe.facadeGizmo()` — the facade gizmo's APPLIED op (`op`; `requestedOp` = the store's), `attached / inScene / dragging / axis / dragId`, `handlePx / originPx / ringPx`, the deterministic `hoverAt(clientX, clientY) → axis | null` for a handle search, `debug(x?, y?)`, `helperRoot()`, `setFeeding(on)`; `__globe.facades()` — the residency plan (`markers {total, drawn, resident}`, `resident`, `occupied`, `world`, `editingId`, `apexOf(id)`); `__globe.photoProjector()` gained `slots[]`, `slotsOn`, `capacity`, `depthRendersTotal` (T171). Drivers: `verify-facade-flow-2026-10-21.mjs` (dev), `verify-facades-live.mjs` (a deployed site, no seams).
 __planStore __saveStore __marketStore __minimapStore __skyStore __findStore __placesStore
 __bldgEditStore __bldgSyncStore __bestSpotStore __modelUploadStore __modelEditStore
@@ -241,11 +242,14 @@ top-level globals; same removal/rename rule):
   (plan §4; C1). `hFovDeg` is the EFFECTIVE horizontal FOV (F1: scale = the H-FOV), `apexAltM` the
   rendered apex height above the ellipsoid at save (a resident facade rebuilds its frustum from it,
   no terrain lookup), `altitudeM` the editor's slider / EXIF value. `exifPose` is the EXIF baseline
-  (the RESET target); `poseSource` the D4 badge — `EXIF` while the saved pose equals it within 1e-9
-  on lat/lon/heading/pitch/roll/hFov, else `MANUAL` (re-derived on every pose PATCH), `SOLVED` only
-  by a T172 solver. `targetFeatureIds` (≤ 200 ids ≤ 80 chars, ≤ 8 KB) and `alignment` (a plain
-  object ≤ 16 KB) are the T172 seats, empty in v1 — JSON-in-TEXT because the provisioner speaks
-  TEXT / NUMBER / BOOLEAN only. `gh5` is the residency cell (the UserModels `hasSome` precedent),
+  (the RESET target); `poseSource` the D4 badge, SERVER-stamped (`derivePoseSource`) — `SOLVED`
+  while the saved pose equals `alignment.solved.pose` within 1e-9 on lat/lon/heading/pitch/roll/hFov
+  (the client restores the solve and stores the SAME snapshot), else `EXIF` while it equals
+  `exifPose`, else `MANUAL` (re-derived on every pose OR `alignment` PATCH against the effective
+  alignment). `targetFeatureIds` (≤ 200 ids ≤ 80 chars, ≤ 8 KB) and `alignment` (a plain object
+  ≤ 16 KB — the F5 record of `lib/geo/facadeAlign.ts`: `{ pairs: [{ uv, enu, target? }] ≤ 24,
+  origin: { lat, lon, altM }, solved?: { pose, rmsPx, n, fovSolved, planar, at } }`, `{}` with no
+  pairs) are the T172 seats — JSON-in-TEXT because the provisioner speaks TEXT / NUMBER / BOOLEAN only. `gh5` is the residency cell (the UserModels `hasSome` precedent),
   re-derived beside `geohash9` on every pose write. `displayUrl` / `thumbUrl` are copied SERVER-side
   off descriptors the route fetched and verified (a public IMAGE under
   `https://static.wixstatic.com/media/`, ≤ 6 MiB) — a client never dictates a URL; a thumb whose
@@ -307,8 +311,9 @@ top-level globals; same removal/rename rule):
   FacadeListItem }`; 502 `SAVE_FAILED`. **PATCH** `{ facadeId, …any editable subset }` (the pose
   fields, the projection params, the seats, `title` 1–120 trimmed; at least one; file ids / URLs /
   owner / `exifPose` / moderation are never read) — owner-gated (404 "no such facade photo of yours"),
-  read-modify-write `items.update` of the WHOLE row, a pose edit re-derives `geohash9` + `gh5` and
-  re-stamps `poseSource` → `{ facadeId, facade }`; 502 `UPDATE_FAILED`. **DELETE** `?id=` →
+  read-modify-write `items.update` of the WHOLE row, a pose edit re-derives `geohash9` + `gh5`, a pose
+  or `alignment` edit re-stamps `poseSource` (SOLVED / EXIF / MANUAL, above); the client sends
+  `alignment` only when it holds pairs, so a re-save never wipes a stored set → `{ facadeId, facade }`; 502 `UPDATE_FAILED`. **DELETE** `?id=` →
   `{ deleted, mediaDeleted }` — the row first, then `bulkDeleteFiles([original, display, thumb])`
   best-effort; 502 `DELETE_FAILED`. Client wires: `lib/save/uploadMedia.ts` `postFacadeRecord` /
   `patchFacadeRecord` / `deleteFacadeRecord` (through `jsonWriteInit` — never a bare DELETE) /

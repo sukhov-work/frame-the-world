@@ -11,6 +11,7 @@ import { read, stripComments, ruleBody } from "../styles/_css";
 
 const SRC = "src/components/panels/FacadePhotoFlow.tsx";
 const CSS = "src/styles/facade-photo.css";
+const ALIGN = "src/components/panels/FacadeAlignSection.tsx";
 
 describe("the facade panel's harness hooks", () => {
   const code = stripComments(read(SRC));
@@ -24,6 +25,49 @@ describe("the facade panel's harness hooks", () => {
     expect(code).toMatch(/data-facade-delete/);
     expect(code).toMatch(/data-facade-row=\{item\.id\}/);
     expect(code).toMatch(/className="pd-save__nameinput pd-save__title uf-mono"/);
+  });
+
+  it("F5 (T172): the ALIGN section's hooks — the thumb, + PAIR, the rows, SOLVE, the lens box, CLEAR, the pick", () => {
+    const align = stripComments(read(ALIGN));
+    expect(code).toMatch(/<FacadeAlignSection \/>/);
+    for (const hook of [
+      "data-facade-align",
+      "data-facade-pair-thumb",
+      "data-facade-pair-add",
+      "data-facade-pair-row={i}",
+      "data-facade-pair-remove={i}",
+      "data-facade-solve",
+      "data-facade-solve-fov",
+      "data-facade-pairs-clear",
+      "data-facade-pick",
+      "data-facade-pick-img",
+      "data-facade-pick-cancel",
+      "data-facade-pick-globe",
+    ]) {
+      expect(align).toContain(hook);
+    }
+    // the pick is the store's machine; the panel never completes a pair, never listens for Escape
+    expect(align).toMatch(/setPendingUv\(uv\)/);
+    expect(align).toMatch(/cancelPairPick\(\)/);
+    expect(align).not.toMatch(/completePair/);
+    expect(align).not.toMatch(/addEventListener\("keydown"/);
+    expect(align).not.toMatch(/autoFocus/);
+    expect(align).not.toMatch(/method=["']post["']/i);
+    expect(align).not.toMatch(/\bfetch\(/);
+  });
+
+  it("F5: the solved knobs badge SOLVED while the pose equals the last solve", () => {
+    expect(code).toMatch(/facadePoseIsSolved\(store\)/);
+    expect(code).toMatch(/text: "SOLVED", tone: "accent"/);
+    const panel = code.slice(code.indexOf("function FacadeDetailPanel"));
+    expect(panel.match(/badge=\{solvedNow \? solvedBadge : /g)?.length).toBe(4);
+    // mounted between NUDGE POSITION and PROJECTION
+    const nudge = panel.indexOf("NUDGE POSITION");
+    const align = panel.indexOf("<FacadeAlignSection />");
+    const proj = panel.indexOf(">PROJECTION<");
+    expect(nudge).toBeGreaterThan(0);
+    expect(align).toBeGreaterThan(nudge);
+    expect(proj).toBeGreaterThan(align);
   });
 
   it("keeps the overlay contracts the harness already relies on", () => {
@@ -122,6 +166,15 @@ describe("the styles exist for the new rows", () => {
     for (const sel of [".ff-gizmo", ".ff-gizmo__ops", ".ff-mine", ".ff-mine__list", ".ff-mine__row", ".ff-mine__thumb", ".ff-mine__sub", ".ff-save__note"]) {
       ruleBody(css, sel);
     }
+  });
+
+  it("F5: the ALIGN section and the PHOTO pick overlay", () => {
+    for (const sel of [".ff-align", ".ff-align__frame", ".ff-align__thumb", ".ff-align__dot", ".ff-align__row", ".ff-align__status", ".ff-pick", ".ff-pick__frame", ".ff-pick__img"]) {
+      ruleBody(css, sel);
+    }
+    // the pick image's rect IS the photo: no letterbox, no border inside the rect
+    expect(ruleBody(css, ".ff-pick__img")).toMatch(/object-fit: fill/);
+    expect(stripComments(ruleBody(css, ".ff-pick__img"))).not.toMatch(/\bborder:/);
   });
 
   it("uses tokens only — no new literal colours", () => {

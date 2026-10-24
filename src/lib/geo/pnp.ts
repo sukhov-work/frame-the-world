@@ -455,6 +455,16 @@ function refine(pairs: readonly FacadePair[], start: { R: Mat3; C: Vec3 }, k0: n
   return { R, C, k, iterations: it, rmsPx: Math.sqrt(cur / Math.max(wsum, 1e-9)) };
 }
 
+/** The solve's own planarity test, standalone (the UI's "one flat wall" note BEFORE a solve): true
+ *  when the points' thinnest extent is under `planarRatio` of the widest, false when they span a
+ *  volume (a corner, two walls), null when fewer than 3 points or collinear (no plane to test). */
+export function facadePairsPlanar(pairs: readonly FacadePair[], planarRatio = 0.02): boolean | null {
+  if (pairs.length < 3 || !pairs.every((p) => p.enu.every(Number.isFinite))) return null;
+  const plane = fitPlane(pairs.map((p) => p.enu));
+  if (!(plane.extents[0] > 1e-6) || plane.extents[1] / plane.extents[0] < 1e-4) return null;
+  return plane.extents[2] / plane.extents[0] < planarRatio;
+}
+
 // ── the solve ────────────────────────────────────────────────────────────────────────────────────
 const FAIL = (reason: string, pose: FacadeEnuPose, planar = false): SolveResult => ({ ok: false, reason, pose, residuals: [], rmsPx: Number.POSITIVE_INFINITY, iterations: 0, planar, fovSolved: false });
 

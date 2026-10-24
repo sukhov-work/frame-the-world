@@ -11,6 +11,8 @@
  * THE FPV RAIL (owner 2026-09-18), top → bottom, right-aligned under the altitude column
  * (fpv.css `.m-altcol`: AR · ⤒ · ⤓): ◎ SAVE · ▤ PLACES (members) · ✕ EXIT VIEW — the first two
  * are 44 px icon cells in the column's geometry, EXIT VIEW is the LAST cell, always.
+ * Owner ask 2026-10-24: EXIT VIEW also rides OVER the open fullscreen map (fpv.css lifts the rail
+ * while `body.mw-open`, every other cell hidden) and one tap closes the map AND leaves FPV.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -21,6 +23,7 @@ import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { usePlacesMapStore } from "../../store/places";
 import { useMemberStore } from "../../store/member";
+import { useMiniMapStore } from "../../store/minimap";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { saveViewPref } from "../../lib/prefs";
 import { formatAltM } from "../../lib/format/readout";
@@ -100,7 +103,9 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
               old text pill rendered BELOW EXIT VIEW and made the signed-in stack one pill taller
               than the altitude column's seat allowed, so ⤓ covered ◎ SAVE. fpv.css seats the
               column one cell higher while this cell is rendered (`body.m:has(.m-act--places)`).
-              EXIT VIEW is always the LAST cell of the rail (the phone's Escape key). */}
+              EXIT VIEW is always the LAST cell of the rail (the phone's Escape key). Owner ask
+              2026-10-24: it stays tappable over the open fullscreen map (`m-act--exit`, fpv.css)
+              and closes the map FIRST, so one tap lands on the global map, not the 3D view. */}
           {memberPhase === "member" && onOpenPlaces && (
             <button
               type="button"
@@ -114,7 +119,15 @@ export default function SceneActions({ onOpenPlaces }: { onOpenPlaces?: () => vo
               PLACES
             </button>
           )}
-          <button type="button" className="m-act" onClick={() => setTempFpv(false)}>
+          <button
+            type="button"
+            className="m-act m-act--exit"
+            onClick={() => {
+              const mm = useMiniMapStore.getState();
+              if (mm.mapWindowOpen) mm.setMapWindowOpen(false);
+              setTempFpv(false);
+            }}
+          >
             ✕ EXIT VIEW
           </button>
         </>

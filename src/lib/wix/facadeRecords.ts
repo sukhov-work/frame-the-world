@@ -7,8 +7,9 @@
  * THE RECORD IS THE POSE, NEVER A BAKED ATLAS (triage §4; C1): a row holds where the camera stood
  * and how it looked, the projection parameters, the Media ids of the three files (the private
  * original · the public 2048-px display JPEG · the public 512-px thumb) and the alignment seats
- * (T172 — `targetFeatureIds` + `alignment`, empty in v1). The projection itself happens at runtime
- * in the city material from this pose.
+ * (T172 — `targetFeatureIds` + `alignment`, the F5 point-pair record of `lib/geo/facadeAlign.ts`;
+ * `{}` until the owner picks a pair). The projection itself happens at runtime in the city material
+ * from this pose.
  *
  * C6: a projected facade photo is EXACT by nature — the pose IS the content, so reduced precision
  * cannot apply. T190 (owner ruling 2026-10-22g): the world read is PUBLIC — every visitor streams
@@ -24,6 +25,7 @@
 
 import { numOrNull, strOrNull } from "../geo/coerce";
 import { encodeGeohash } from "../geo/geohash";
+import { solvedPoseOfAlignment, type FacadeSolvedPose } from "../geo/facadeAlign";
 import { titleFromFileName } from "../save/pinBody";
 
 /** The camera pose + optics of a facade photo — what the frustum and the projector are built from. */
@@ -57,12 +59,17 @@ export interface FacadeProjectionParams {
   rangeM: number | null;
 }
 
-/** The alignment seats (T172 / F5) — born with the record, empty in v1. */
+/** The alignment seats (T172 / F5) — born with the record. */
 export interface FacadeAlignment {
   /** Building keys the projector paints: `"osm:<id>"` or `"<variant>|<cell>|<featureId>"` — never a
    *  bare `_feature_id_0` (ids restart per tile). Empty until the id map lands (T172). */
   targetFeatureIds: string[];
-  /** `{ pairs: [{ uv: [u, v], featureId, cornerIndex | worldEcef }] }` once a solver exists; `{}` in v1. */
+  /** The F5 point-pair record (`lib/geo/facadeAlign.ts` — `parseFacadeAlignment` / `alignmentRecordOf`):
+   *  `{ pairs: [{ uv: [u, v], enu: [e, n, u], target? }], origin: { lat, lon, altM }, solved?: { pose,
+   *  rmsPx, n, fovSolved, planar, at } }` — `solved.pose` is the exact snapshot the solve wrote, the
+   *  server's SOLVED proof (`derivePoseSource`). `{}` = no pairs picked. Stored as JSON-in-TEXT ≤
+   *  `FACADE_ALIGNMENT_MAX_BYTES`; the server checks only the plain-object + size rails, the record
+   *  parse is lenient on read. */
   alignment: Record<string, unknown>;
 }
 
@@ -568,21 +575,26 @@ export function safeFacadeFileName(fileName: string): string {
 
 // ── the record ───────────────────────────────────────────────────────────────────────────────
 
-/** The provenance badge of a pose against its EXIF baseline (the D4 idiom, `paramSource`): EXIF when
- *  the six camera numbers match within `FACADE_POSE_EPS`, else MANUAL. SOLVED is stamped by a solver
- *  (T172), never derived here. The heights (`apexAltM` / `altitudeM`) are deliberately NOT compared —
- *  the apex is a rendering fact (terrain under the eye), not a camera parameter the owner edited. */
-export function derivePoseSource(pose: FacadePose, exifPose: FacadePose | null): FacadePoseSource {
+/** The provenance badge of a pose (the D4 idiom, `paramSource`): SOLVED when the six camera numbers
+ *  (lat lon headingDeg pitchDeg rollDeg hFovDeg) equal the alignment's `solved.pose` within
+ *  `FACADE_POSE_EPS` (the client writes the solve through `restorePose` and stores the SAME snapshot in
+ *  `alignment.solved.pose` — T172 / F5), else EXIF when they equal the EXIF baseline, else MANUAL — so a
+ *  nudge after a solve reads MANUAL again. The heights (`apexAltM` / `altitudeM`) are deliberately NOT
+ *  compared — the apex is a rendering fact (terrain under the eye), not a camera parameter the owner
+ *  edited. */
+export function derivePoseSource(pose: FacadePose, exifPose: FacadePose | null, solvedPose?: FacadeSolvedPose | null): FacadePoseSource {
+  // `null` (an unset snapshot angle — a solve never leaves one) never matches.
+  const near = (a: number, b: number | null) => b !== null && Math.abs(a - b) <= FACADE_POSE_EPS;
+  const same = (q: Pick<FacadePoseSnapshot, "lat" | "lon" | "headingDeg" | "pitchDeg" | "rollDeg" | "hFovDeg">) =>
+    near(pose.lat, q.lat) &&
+    near(pose.lon, q.lon) &&
+    near(pose.headingDeg, q.headingDeg) &&
+    near(pose.pitchDeg, q.pitchDeg) &&
+    near(pose.rollDeg, q.rollDeg) &&
+    near(pose.hFovDeg, q.hFovDeg);
+  if (solvedPose && same(solvedPose)) return "SOLVED";
   if (!exifPose) return "MANUAL";
-  const near = (a: number, b: number) => Math.abs(a - b) <= FACADE_POSE_EPS;
-  return near(pose.lat, exifPose.lat) &&
-    near(pose.lon, exifPose.lon) &&
-    near(pose.headingDeg, exifPose.headingDeg) &&
-    near(pose.pitchDeg, exifPose.pitchDeg) &&
-    near(pose.rollDeg, exifPose.rollDeg) &&
-    near(pose.hFovDeg, exifPose.hFovDeg)
-    ? "EXIF"
-    : "MANUAL";
+  return same(exifPose) ? "EXIF" : "MANUAL";
 }
 
 /** The editable columns of a row as a flat object (the pose, the params, the seats, the title). */
@@ -632,7 +644,7 @@ export function facadeRecord(
   return {
     ...editableColumns(body),
     ownerMemberId,
-    poseSource: derivePoseSource(body, body.exifPose),
+    poseSource: derivePoseSource(body, body.exifPose, solvedPoseOfAlignment(body.alignment)),
     exifPose: body.exifPose ? JSON.stringify(body.exifPose) : null,
     capturedAt: body.capturedAt,
     cameraMake: body.cameraMake,
@@ -709,9 +721,11 @@ function jsonColumn<T>(raw: unknown, shape: (v: unknown) => T | null): T | null 
 /**
  * Merge an owner PATCH into the stored row (the pure core of PATCH /api/facades — read-modify-write,
  * `items.update` replaces the whole item so the untouched columns ride along). A POSE edit re-derives
- * both geohash columns and re-stamps `poseSource` against the stored EXIF baseline (back to exactly
- * the EXIF numbers reads EXIF again — the D4 `paramSource` idiom; anything else MANUAL); a patch
- * without a pose field keeps the stored badge (a SOLVED row stays SOLVED under a title edit). The
+ * both geohash columns; a POSE or `alignment` edit re-stamps `poseSource` (`derivePoseSource`) against
+ * the EFFECTIVE alignment's `solved.pose` (the patch's when it carries one, else the stored row's) and
+ * the stored EXIF baseline — the saved pose equal to the solve reads SOLVED, back to exactly the EXIF
+ * numbers reads EXIF (the D4 `paramSource` idiom), anything else MANUAL; a patch with neither keeps
+ * the stored badge (a SOLVED row stays SOLVED under a title edit). The
  * owner, the file ids, the URLs, the EXIF pose and the moderation state are never written here.
  */
 export function applyFacadeUpdate(
@@ -730,10 +744,10 @@ export function applyFacadeUpdate(
     const v = patch[key];
     if (v !== undefined) (effective as unknown as Record<string, unknown>)[key] = v;
   }
-  const poseEdited = POSE_EDIT_KEYS.some((k) => patch[k] !== undefined);
+  const restamp = POSE_EDIT_KEYS.some((k) => patch[k] !== undefined) || patch.alignment !== undefined;
   const storedSource = strOrNull(existing.poseSource);
-  const poseSource: FacadePoseSource = poseEdited
-    ? derivePoseSource(effective, storedExifPose(existing))
+  const poseSource: FacadePoseSource = restamp
+    ? derivePoseSource(effective, storedExifPose(existing), solvedPoseOfAlignment(effective.alignment))
     : POSE_SOURCES.includes(storedSource as FacadePoseSource)
       ? (storedSource as FacadePoseSource)
       : "MANUAL";

@@ -35,6 +35,9 @@ export interface FacadeSnapshot {
   /** T172 (F5): the buildings the projector paints at SAVE / UPDATE time (`probeFacadeTargets` —
    *  the globe's 7×5 ray grid); undefined / null = no probe answer (no globe, tiles not in). */
   targetFeatureIds?: string[] | null;
+  /** T172 (F5): the point-pair record (`alignmentRecordOf` — `lib/geo/facadeAlign.ts`), its `solved.pose`
+   *  the server's SOLVED proof; undefined / null = nothing to store (no pairs picked). */
+  alignment?: Record<string, unknown> | null;
 }
 
 /** The Media ids the three uploads handed back — the display JPEG is required (it is what every slot samples). */
@@ -82,7 +85,8 @@ export function buildSaveFacadeBody(s: FacadeSnapshot, files: FacadeFileIds): Sa
     rangeM: s.projection.rangeM,
     // T172 (F5): the buildings the projector painted at SAVE (the globe's probe); [] without one.
     targetFeatureIds: s.targetFeatureIds ?? [],
-    alignment: {},
+    // T172 (F5): the pairs + the last solve; `{}` without any (the POST field is required).
+    alignment: s.alignment ?? {},
     title: customTitle || titleFromFileName(s.fileName),
     capturedAt: s.exif.capturedAt ?? null,
     cameraMake: s.exif.make ?? null,
@@ -99,8 +103,9 @@ export function buildSaveFacadeBody(s: FacadeSnapshot, files: FacadeFileIds): Sa
 
 /**
  * PATCH /api/facades body — the pose + the projection params + the title; NEVER a file field (the
- * edit flow re-uploads nothing), never the texture dims (file facts), never `alignment` (solver-only:
- * a re-save must not wipe what a solver wrote — it is patched by its own flow, T172).
+ * edit flow re-uploads nothing), never the texture dims (file facts). `alignment` (the F5 pairs + the
+ * last solve) rides ONLY when the snapshot holds a record — a re-save without pairs must never wipe a
+ * stored set; the server re-stamps `poseSource` (SOLVED while the pose equals `solved.pose`).
  * `targetFeatureIds` come from the POSE (the globe re-probes at UPDATE), so they ride along — but
  * ONLY as a non-empty set: an empty / null probe (the tiles not streamed in yet, no globe) keeps the
  * stored set, because a re-save on a half-loaded city must never wipe a good one.
@@ -115,6 +120,7 @@ export function buildUpdateFacadeBody(s: FacadeSnapshot, facadeId: string): Upda
     ownLight: s.projection.ownLight,
     rangeM: s.projection.rangeM,
     ...(Array.isArray(s.targetFeatureIds) && s.targetFeatureIds.length > 0 ? { targetFeatureIds: s.targetFeatureIds } : {}),
+    ...(s.alignment ? { alignment: s.alignment } : {}),
     title: customTitle || titleFromFileName(s.fileName),
   };
 }

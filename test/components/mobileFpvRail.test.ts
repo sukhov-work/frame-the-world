@@ -67,7 +67,7 @@ describe("the /m FPV rail (owner 2026-09-18)", () => {
     expect(b.map((x) => x.text)).toEqual(["◎SAVE", "▤PLACES", "✕ EXIT VIEW"]);
     expect(b[0].cls).toBe("m-act m-act--icon");
     expect(b[1].cls).toBe("m-act m-act--icon m-act--places");
-    expect(b[2].cls).toBe("m-act");
+    expect(b[2].cls).toBe("m-act m-act--exit");
     // The old text pill never appears inside FPV.
     expect(b.some((x) => /SAVED PLACES/.test(x.text))).toBe(false);
   });
@@ -111,6 +111,39 @@ describe("the /m FPV rail (owner 2026-09-18)", () => {
     expect(ruleBody(chrome, ".m-actions")).toMatch(/gap: 8px;/);
     // The column keeps reading the token (the A1-2 contract the map window shares).
     expect(ruleBody(FPV_CSS, ".m-altcol")).toMatch(/bottom:\s*calc\(var\(--m-altcol-bottom\)/);
+  });
+});
+
+describe("EXIT VIEW over the open fullscreen map (owner ask 2026-10-24)", () => {
+  it("the rendered EXIT VIEW cell carries m-act--exit and is still the LAST cell (member + signed out)", () => {
+    for (const phase of ["member", "anonymous"] as const) {
+      useCameraStore.setState(CAM_BOOT, true);
+      useMemberStore.setState({ phase });
+      enterFpv();
+      const b = buttons(render());
+      expect(b[b.length - 1]).toEqual({ cls: "m-act m-act--exit", text: "✕ EXIT VIEW" });
+      expect(b.filter((x) => /m-act--exit/.test(x.cls)).length).toBe(1);
+    }
+  });
+
+  it("fpv.css lifts the whole rail over the map (z 24), hides every other cell by visibility, and only EXIT VIEW takes taps", () => {
+    const rail = ruleBody(FPV_CSS, "body.m.mw-open .m-actions");
+    expect(rail).toMatch(/z-index:\s*24;/);
+    expect(rail).toMatch(/pointer-events:\s*none;/);
+    const others = ruleBody(FPV_CSS, "body.m.mw-open .m-actions > .m-act:not(.m-act--exit)");
+    expect(others).toMatch(/visibility:\s*hidden;/);
+    // display would drop the cells from layout and move EXIT VIEW off its seat.
+    expect(others).not.toMatch(/display/);
+    expect(ruleBody(FPV_CSS, "body.m.mw-open .m-actions > .m-act--exit")).toMatch(/pointer-events:\s*auto;/);
+    // The rung is the one the joystick + altitude column already ride (the map window is z 20).
+    expect(ruleBody(FPV_CSS, "body.mw-open .m-altcol")).toMatch(/z-index:\s*24;/);
+  });
+
+  it("the EXIT VIEW handler closes the map window BEFORE leaving FPV (one tap → the global map)", () => {
+    expect(SRC).toMatch(/import \{ useMiniMapStore \} from "\.\.\/\.\.\/store\/minimap";/);
+    const handler = /className="m-act m-act--exit"\s*onClick=\{\(\) => \{([\s\S]*?)\}\}\s*>\s*✕ EXIT VIEW/.exec(SRC);
+    expect(handler, "the EXIT VIEW handler is missing").not.toBeNull();
+    expect(handler![1]).toMatch(/setMapWindowOpen\(false\)[\s\S]*setTempFpv\(false\)/);
   });
 });
 

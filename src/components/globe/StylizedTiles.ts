@@ -159,6 +159,7 @@ import { attachVectorTiles } from "./scene/vectorTiles";
 import { attachPhotoFrustum } from "./PhotoFrustum";
 import { attachPhotoProjector, DRAFT_SLOT_ID, effectiveRangeM, projectorOptics } from "./scene/photoProjector";
 import { enrichedTargetId, osmTargetId, probeFacadeTargets, registerFacadeTargetProbe, sampleFacadeTargets } from "../../lib/globe/facadeTargets";
+import { enuOfEcef, rayThroughUv } from "../../lib/geo/facadeAlign";
 import { attachFacadeGizmo } from "./scene/facadeGizmo";
 import { attachFacadeMarkers } from "./scene/facadeMarkers";
 import {
@@ -1662,8 +1663,11 @@ export function attachStylizedTiles(opts: {
   const _targetOrigin = new THREE.Vector3();
   const _targetDir = new THREE.Vector3();
   const _targetRoots: THREE.Object3D[] = [];
-  const castFacadeTarget = (origin: Vec3, dir: Vec3, farM: number): string | null => {
-    _targetRay.set(_targetOrigin.set(origin[0], origin[1], origin[2]), _targetDir.set(dir[0], dir[1], dir[2]));
+  /** The ray the probe and the F5 pair pick share: the nearest BUILDING surface point along it
+   *  (ECEF) + the building's key (null for a building with no stable key); null when the ray hits
+   *  nothing pickable within `farM` — a non-pickable enriched class (a lamp post) occludes and
+   *  yields nothing, an OSM twin inside the enriched bbox is skipped. The ray must already be set. */
+  const castFacadeRaySet = (farM: number): { ecef: [number, number, number]; target: string | null } | null => {
     _targetRay.near = 0;
     _targetRay.far = farM;
     _targetRoots.length = 0;
@@ -1673,7 +1677,7 @@ export function attachStylizedTiles(opts: {
       const f = enriched?.featureOfHit(hit) ?? null;
       if (f) {
         if (!f.pickable) return null;
-        return enrichedTargetId(enrichedSel.variant ?? null, f.cellUri, f.featureId, f.osm);
+        return { ecef: [hit.point.x, hit.point.y, hit.point.z], target: enrichedTargetId(enrichedSel.variant ?? null, f.cellUri, f.featureId, f.osm) };
       }
       const o = buildings.osmIdOfHit(hit);
       if (o) {
@@ -1681,11 +1685,16 @@ export function attachStylizedTiles(opts: {
           const g = ecefToGeodetic([hit.point.x, hit.point.y, hit.point.z]);
           if (bboxContainsDeg(enrichedBbox, g.lonDeg, g.latDeg)) continue;
         }
-        return osmTargetId(o.elementType, o.elementId);
+        return { ecef: [hit.point.x, hit.point.y, hit.point.z], target: osmTargetId(o.elementType, o.elementId) };
       }
     }
     return null;
   };
+  const castFacadeRay = (origin: Vec3, dir: Vec3, farM: number): ReturnType<typeof castFacadeRaySet> => {
+    _targetRay.set(_targetOrigin.set(origin[0], origin[1], origin[2]), _targetDir.set(dir[0], dir[1], dir[2]));
+    return castFacadeRaySet(farM);
+  };
+  const castFacadeTarget = (origin: Vec3, dir: Vec3, farM: number): string | null => castFacadeRay(origin, dir, farM)?.target ?? null;
   const unregisterFacadeTargets = photoProjector && !isMobileShell
     ? registerFacadeTargetProbe(() => {
         const g = facadeFrustum.current();
@@ -2081,6 +2090,30 @@ export function attachStylizedTiles(opts: {
       [d.x, d.y, d.z],
     );
   };
+  /** F5 (T172, 2026-10-24) — the PAIR pick's globe half under a client point: the building surface
+   *  point first (the target probe's two FILL layers — what paints is what the user sees), else the
+   *  rendered ground (`pickGround` — a building's foot or the pavement is a legitimate pair point;
+   *  it carries no building key). Null past the limb or under an occluding non-pickable class. */
+  const FACADE_PICK_FAR_M = 50_000;
+  const castFacadePoint = (ndcX: number, ndcY: number): { ecef: [number, number, number]; target: string | null } | null => {
+    _targetRay.setFromCamera(_pickNdc.set(ndcX, ndcY), camera);
+    const hit = castFacadeRaySet(FACADE_PICK_FAR_M);
+    if (hit) return hit;
+    const ground = pickGround(ndcX, ndcY);
+    return ground ? { ecef: [ground[0], ground[1], ground[2]], target: null } : null;
+  };
+  /** F5 — the globe half of the pair in flight (`store/facadePhoto` `pairPick === "globe"`): cast,
+   *  convert to ENU about the record's FIXED origin, complete the pair. True whenever the pick is
+   *  armed — the click is consumed even on a miss (the pick stays armed; nothing else may take it).
+   *  Both shells' tap paths call it BEFORE their own rungs; the orchestrator is the one caller of
+   *  `completePair`. */
+  const tryFacadePairClick = (ndcX: number, ndcY: number): boolean => {
+    const fs = useFacadePhotoStore.getState();
+    if (fs.pairPick !== "globe" || !fs.pairOrigin) return false;
+    const hit = castFacadePoint(ndcX, ndcY);
+    if (hit) fs.completePair(enuOfEcef(fs.pairOrigin, hit.ecef), hit.target);
+    return true;
+  };
 
   // --- Sky-marker click (ASTRO ENGINE phase C, owner feedback): clicking the tracked target's
   //     hairline ring aims the camera at it (FPV: look glide · orbit: heading + tilt raise —
@@ -2432,6 +2465,8 @@ export function attachStylizedTiles(opts: {
     if (Math.hypot(e.clientX - downX, e.clientY - downY) > ORCH.clickDragPx) return; // a drag, not a click
     const rect = dom.getBoundingClientRect();
     const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+    // F5: a facade pair's globe half owns the click while armed (it is modal, like placing).
+    if (tryFacadePairClick(ndcX, ndcY)) return;
     if (useUserModelsStore.getState().placing) {
       // MS5: a stored model is being placed — cast at the rendered ground, PATCH its placement.
       const hit = pickGround(ndcX, ndcY);
@@ -2549,10 +2584,13 @@ export function attachStylizedTiles(opts: {
     dom.style.cursor = placing ? "crosshair" : "";
     if (!placing) placingMarker.visible = false;
   });
-  // The facade photo's placing drives the same crosshair + marker.
+  // The facade photo's placing drives the same crosshair + marker; so does the F5 pair pick's
+  // globe half (the same "click the globe" posture, no marker — the pair lands where the click hit).
   const unsubFacadeCursor = useFacadePhotoStore.subscribe((s, prev) => {
-    if ((s.phase === "placing") === (prev.phase === "placing")) return;
-    dom.style.cursor = placingNow() ? "crosshair" : "";
+    const now = s.phase === "placing" || s.pairPick === "globe";
+    const was = prev.phase === "placing" || prev.pairPick === "globe";
+    if (now === was) return;
+    dom.style.cursor = placingNow() || s.pairPick === "globe" ? "crosshair" : "";
     if (!placingNow()) placingMarker.visible = false;
   });
   // MS5: the model placing drives the same crosshair + marker.
@@ -3776,6 +3814,9 @@ export function attachStylizedTiles(opts: {
       }
       const rect = dom.getBoundingClientRect();
       const [ndcX, ndcY] = clientToNdc(e.clientX, e.clientY, rect);
+      // F5: a facade pair's globe half owns the tap while armed — FPV is where a member stands at
+      // the wall and clicks the exact brick; nothing below may take that click.
+      if (tryFacadePairClick(ndcX, ndcY)) return;
       // Marker first, then a SAVED PLACE's pin (T189: re-jump to that viewpoint from inside FPV),
       // then a FIND ghost projection — a tap on a standing jumps time onto it.
       if (!trySkyMarkerClick(ndcX, ndcY) && !tryPlaceMarkerClick(ndcX, ndcY) && !tryFacadePeekTap(ndcX, ndcY) && !tryFindGhostClick(ndcX, ndcY)) {
@@ -3921,6 +3962,13 @@ export function attachStylizedTiles(opts: {
       }
       if (facadeGizmo && facadeGizmoDragId !== null) {
         endFacadeGizmoDrag(facadeGizmoDragId, true);
+        return;
+      }
+      // F5: a facade pair pick in flight (either half) is abandoned first — never unwinds FPV
+      // under it. This is the ONE Escape owner for the pick (a second listener would race it).
+      const fp = useFacadePhotoStore.getState();
+      if (fp.pairPick !== "none") {
+        fp.cancelPairPick();
         return;
       }
     }
@@ -5085,6 +5133,34 @@ export function attachStylizedTiles(opts: {
         seatOf: (id: string) => placeMarkers.seatOf(id), // T195 — the ground seat (h · real · tile depth)
         pick: (ndcX: number, ndcY: number) => placeMarkers.pick(ndcX, ndcY, camera)?.id ?? null,
       }),
+      // F5 (T172, 2026-10-24) — the alignment pairs' DEV seam: the pick state, the globe half's
+      // cast under a client point, the frustum's own ray through a photo uv (a harness's GROUND
+      // TRUTH: where the CURRENT pose says a photo point sits on the buildings), and a world point's
+      // screen position (so a harness can click the globe exactly there).
+      facadeAlign: () => {
+        const fs = useFacadePhotoStore.getState();
+        return {
+          pick: fs.pairPick,
+          pairs: fs.pairs.length,
+          origin: fs.pairOrigin ?? null,
+          castAt: (clientX: number, clientY: number) => {
+            const rect = dom.getBoundingClientRect();
+            const [nx, ny] = clientToNdc(clientX, clientY, rect);
+            return castFacadePoint(nx, ny);
+          },
+          castUv: (u: number, v: number) => {
+            const g = facadeFrustum.current();
+            if (!g) return null;
+            return castFacadeRay(g.apex, rayThroughUv(g, u, v), FACADE_PICK_FAR_M);
+          },
+          screenOf: (ecef: [number, number, number]) => {
+            const p = new THREE.Vector3(ecef[0], ecef[1], ecef[2]).project(camera);
+            if (!(p.z < 1)) return null; // behind the camera
+            return ndcToClient(p.x, p.y, dom.getBoundingClientRect());
+          },
+          enuOf: (ecef: [number, number, number]) => (fs.pairOrigin ? enuOfEcef(fs.pairOrigin, ecef) : null),
+        };
+      },
       facades: () => ({
         markers: facadeMarkers?.count() ?? null,
         hovered: facadeMarkers?.hovered() ?? null,

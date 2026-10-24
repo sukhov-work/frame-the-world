@@ -70,8 +70,13 @@ decides all six; nothing in this record pre-empts them.
 ### 3.1 How far should the photo-to-building alignment UI go (F5's second half)?
 Why it exists. A phone's GPS is off by 3 to 15 m against the box-shaped buildings (§14), so a texture often lands beside
 its wall until the member drags it into place. A solver that computes the pose from point pairs exists
-(`solveFacadePose`, `lib/geo/pnp.ts:461`) but no UI calls it; the `alignment` field and the `SOLVED` pose source stay
-empty (§13).
+(`solveFacadePose`, `lib/geo/pnp.ts:461`); when this record was finalised no UI called it and the `alignment` field and the
+`SOLVED` pose source stayed empty.
+**Answered by the owner's order (the handover's step 2) and BUILT on 2026-10-24c:** the suggested proposal below shipped as
+`panels/FacadeAlignSection.tsx` + `lib/geo/facadeAlign.ts` (the pairs record, the solve, the server's SOLVED stamp) — see
+DECISIONS 2026-10-24c and backlog T172 / T197 (the tails: a loupe for the orbit pick, the real-photo measurement). On dev,
+six exact pairs return a GPS-perturbed pose to the truth within 0 m / 0° (`verify-facade-align-2026-10-24.mjs` d6b); pairs
+picked with orbit clicks carry 0.17–0.28 m of world noise each (an FPV tap 0.03 m), so the guide sends the member to the wall.
 Suggested: the proposal recorded in mem `wip-2026-10-23-owner-asks-build-t187-t191-f6.md`. The panel gets a PAIRS list
 (click a point on the photo, then the matching point on a building), a SOLVE button from 4 pairs, an optional
 solve-the-field-of-view checkbox from 6 pairs, and the result is written as one undoable edit with `poseSource: "SOLVED"`.
@@ -177,7 +182,7 @@ flowchart LR
     MK["facadeMarkers: camera icons"]:::new
     BM["buildingMaterial: K-slot shader block"]:::changed
     TG["facadeTargets + buildingHit: ray grid"]:::new
-    PNP["lib geo pnp: solver, not wired"]:::new
+    PNP["lib geo pnp + facadeAlign: the solver, wired to the PAIRS section (2026-10-24c)"]:::new
     TU["tuning: PHOTO_PROJECT and LEAN"]:::changed
   end
   subgraph wix["Wix backend"]
@@ -303,7 +308,7 @@ The dashed arrow is the planned link from §3.1. The file behind each box, with 
 | `lib/geo/frustum.ts` (99) | `frustumGeometry` 63 (apex, basis, far corners; ECEF) | pure |
 | `lib/globe/facadeResidency.ts` (276) | `facadePaintedVolume` 90, `facadeVolumeDistanceM` 115, `facadeVolumeInView` 145, `facadeSlotFade` 162, `planFacadeSlots` 231 | pure |
 | `lib/globe/facadeTargets.ts` (152) + `buildingHit.ts` (60) | the 7 × 5 grid (32), `sampleFacadeTargets` 76, `osmTargetId` 111, the probe registry 135-152; `osmElementOfHit` 34 (the b3dm hierarchy) | pure; pulled by `facadeSave` |
-| `lib/geo/pnp.ts` (520) | `solveFacadePose` 461; **imported only by its test — not wired** | pure |
+| `lib/geo/pnp.ts` (530) | `solveFacadePose` 461 + `facadePairsPlanar`; **wired since 2026-10-24c** through `lib/geo/facadeAlign.ts` (`solveFacadeDraft`) to `panels/FacadeAlignSection.tsx` | pure |
 | `lib/wix/facadeRecords.ts` (802) | the contract, constants 165-207, parsers 283-511, `derivePoseSource` 574, `facadeRecord` 626, `applyFacadeUpdate` 716, `facadeWorldItem` 756, `facadeListItem` 774 | server + client |
 | `lib/save/facadeBody.ts` (144) | `buildSaveFacadeBody` 76; `buildUpdateFacadeBody` 108 (targets only when non-empty) | reads a `facadePhoto` snapshot |
 | `lib/save/uploadMedia.ts` (419) | `uploadFacadeImage` 306, `makeFacadeDerivatives` 374, post / patch / delete 393-406, `fetchMyFacades` 410, `fetchWorldFacades` 417 | — |
@@ -407,14 +412,14 @@ means `wix dev` driven by a harness in the house Chrome on the owner's M3 laptop
 | Gizmo response: ROTATE 25° to 30.23° for 80 px, SCALE 69.39° to 92.43°, MOVE 2.7 m for 120 px at 66 m | Dev harnesses (D 10-22d) | 90% | A change to the `gizmoGain*` tunables or to the camera distance |
 | Residency fade 0.46 at 2.5 km, released at 3.5 km; plan every 12 frames; throttle 600 ms; re-poll 90 s; 16 cells a query; 6 km / 3 km cover | Dev harness for the fade (`verify-owner-asks-2026-10-22` leg 5); the timers and caps read from code (`tuning.ts:5276-5278`, `store/facades.ts:33`) | 85% for the fade; 95% for the code constants | A tunable change; the slot-swap count over a real walk is still not measured (§13) |
 | T174 re-renders the depth map within 6 frames of a scale change; T186 lands 0.01 m from the apex; F5 finds 4 building ids | Dev harnesses at the fixture pose | 85% | The F5 count is from one pose; the live save of building ids through the deployed UI is not proven (§13) |
-| PnP: < 1e-3 m noise-free; 0.39 m / 0.60° at 1 px noise with 12 pairs; the field of view recovered from 8° off | Unit tests on a synthetic 20 × 12 m wall (`test/lib/geo/pnp.test.ts`) | 90% on synthetic data; real-photo accuracy unknown | Real photos with surveyed points; the solver is not wired to any UI |
+| PnP: < 1e-3 m noise-free; 0.39 m / 0.60° at 1 px noise with 12 pairs; the field of view recovered from 8° off | Unit tests on a synthetic 20 × 12 m wall (`test/lib/geo/pnp.test.ts`) | 90% on synthetic data; real-photo accuracy unknown | Real photos with surveyed points (T197). Wired on 2026-10-24c; on dev six exact pairs through the real frustum land 0 m / 0° / 0.0 px, orbit-picked pairs 0.44 m / 0.2° (the click's own noise) |
 | Live API calls 385 to 1,716 ms; display PUT 3.6 s; thumb PUT 2.4 s; world read ~1 s; 502 only on cold hits after a release | `verify-facades-live` on plux.today, a handful of runs from one network | 70% | More runs, another region, a busier site |
 | Gates: vitest 3,424 to 3,796 tests over 250 files; astro 0 errors | The test runner and `astro check` at each ship | 95% | Nothing material; the timing-flake gates are a separate risk (§14) |
 
 ## 13. Known gaps, tails and open questions (as of 2026-10-23)
 - **T195 — the new place pins drift / float when the camera moves (orbit and FPV) — the owner's live find, the next session's first bug.** Suspects: the camera-relative anchoring in `scene/placeMarkers.ts` `update()` (the mesh at the camera, instance offsets `p − camera` recomposed only when the camera moved > 1 m or turned) vs the pins' / facade markers' idiom; the `resnap()` re-seating positions without a recompose; the FPV walk's eye lift. The harness to extend: `verify-owner-asks-2026-10-23.mjs` d2 — pan the camera and assert the marker's screen point tracks its anchor's projection within a few px over several frames.
 - T184 — the facade overlay's idle body is orphaned UI (the owner's call). T185 — only gizmo drags and ↺ are undoable (the owner's call). T192 — the world reads answer one page per cover and never page (a tail). T173 — `wix dev` cannot elevate (the owner should check the OAuth app). T165 — the latent per-tile uniform limit, never browser-verified. T166 — the 23 km instant-cut lift on pins. T167 — portrait photos / native JPEG dims. T168 remainders — no ground / tree occluders, crease edges over the paint, no range control in the panel.
-- F5's UI half: the pairs UI, `alignment.solved`, `poseSource: "SOLVED"` (`pnp.ts` is not wired); the proposal is in mem 2026-10-23. Lever 3 (the uv rectangle / crop to the building): not built. KTX2 revisit with F6: not done.
+- F5's UI half: BUILT 2026-10-24c (the pairs UI, `alignment.solved`, `poseSource: "SOLVED"` — DECISIONS 2026-10-24c; the tails in T197). Lever 3 (the uv rectangle / crop to the building): not built. KTX2 revisit with F6: not done.
 - A real-phone read: PLAN:106-107 requires a farm run on the iPhone 17 Pro "before any release"; F6 shipped measured on an EMULATED iPhone only.
 - The T187 slot-swap count read: owed, not done. The live SAVE of `targetFeatureIds` through the deployed UI: not proven (D 10-22f).
 - REMOVED is never set by code: the only withhold switch is a manual dashboard edit (moderation is parked by the owner).

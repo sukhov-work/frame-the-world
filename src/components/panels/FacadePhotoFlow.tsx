@@ -46,6 +46,7 @@ import {
 import Slider, { type BadgeTone } from "../ui/Slider";
 import Encoder from "../ui/Encoder";
 import InfoDot from "../ui/InfoDot";
+import FacadeAlignSection, { facadePoseIsSolved } from "./FacadeAlignSection";
 import DragGrip, { usePanelDrag } from "../ui/DragGrip";
 import { CONTROLS, FRUSTUM, PHOTO_PROJECT } from "../globe/tuning";
 import "../../styles/upload-flow.css";
@@ -584,6 +585,9 @@ function FacadeDetailPanel() {
         ? { text: "EXIF", tone: "accent" }
         : { text: "MISSING", tone: "warn" };
   const dirty = isDirty(exif, store.params) || store.rollDeg !== undefined || hFovManual;
+  // F5 — while the pose IS the last solve's (exactly), the solved knobs say SOLVED, not MANUAL.
+  const solvedNow = facadePoseIsSolved(store);
+  const solvedBadge: { text: string; tone: BadgeTone } = { text: "SOLVED", tone: "accent" };
   const plane = Math.round((store.planeOpacity ?? FRUSTUM.planeOpacity) * 100);
   const { projection } = store;
 
@@ -692,7 +696,7 @@ function FacadeDetailPanel() {
             expoGamma={CONTROLS.rateExpoGamma}
             onRate={onHeadingRate}
             onReset={() => facade().resetParam("headingDeg")}
-            badge={badge("headingDeg")}
+            badge={solvedNow ? solvedBadge : badge("headingDeg")}
             tip="COMPASS DIRECTION THE LENS FACES."
           />
           <Slider
@@ -704,7 +708,7 @@ function FacadeDetailPanel() {
             step={0.1}
             onChange={(v) => facade().setParam("pitchDeg", v)}
             onReset={() => facade().resetParam("pitchDeg")}
-            badge={badge("pitchDeg")}
+            badge={solvedNow ? solvedBadge : badge("pitchDeg")}
             tip="LENS TILT — NEGATIVE LOOKS DOWN, POSITIVE UP."
           />
           <Slider
@@ -716,7 +720,7 @@ function FacadeDetailPanel() {
             step={0.1}
             onChange={(v) => facade().setRollDeg(v)}
             onReset={() => facade().setRollDeg(undefined)}
-            badge={rollBadge}
+            badge={solvedNow ? solvedBadge : rollBadge}
             tip="HORIZON TILT — CLOCKWISE IS POSITIVE."
           />
           <Slider
@@ -728,7 +732,7 @@ function FacadeDetailPanel() {
             step={0.1}
             onChange={(v) => facade().setHFovDeg(v)}
             onReset={() => facade().setHFovDeg(undefined)}
-            badge={hFovBadge}
+            badge={solvedNow ? solvedBadge : hFovBadge}
             tip="FIELD OF VIEW — THE SCALE GIZMO WRITES THE SAME NUMBER."
           />
           <Slider
@@ -784,6 +788,9 @@ function FacadeDetailPanel() {
             </span>
           </div>
         </div>
+
+        {/* F5 (T172) — align the photo to the buildings from point pairs (FacadeAlignSection). */}
+        <FacadeAlignSection />
 
         <div className="pd-adjust">
           <div className="pd-adjust__head">

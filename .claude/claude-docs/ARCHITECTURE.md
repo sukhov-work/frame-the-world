@@ -615,7 +615,7 @@ guides layer on rendered geometry, the long press → the one-row strip + the fo
 persists and HOLDS → reload → CANCEL → RESET; 66). DEV seams: `__globe.arLook()` (`aim`, `trim`, `cal`, `rollDeg`),
 `__globe.arGuides()`. Decisions: `DECISIONS.md` 2026-09-07h, 2026-09-19, 2026-09-22. Guide: `mobile-ar`, `mobile-ar-camera`.
 
-## 7g. BUILDING TEXTURES: facade photo projection (as built through F6, 2026-10-23) [LIVE v1.36.42]
+## 7g. BUILDING TEXTURES: facade photo projection (as built through F6 + F5's pairs UI, 2026-10-24c) [LIVE v1.36.43; the pairs UI awaits its release]
 **The design record is `rendering/ADR_BUILDING_TEXTURES_2026-10-23.md`** (overview, owner questions, terms, diagram, flows,
 the decisions with their rejected alternatives, the numbers with a confidence per claim, the gaps, the risks). Summary:
 a member places a street photo at its camera pose and fits it with a gizmo (`store/facadePhoto.ts`, `scene/facadeGizmo.ts`);
@@ -628,8 +628,12 @@ photos by the distance to their painted volume, fading over 2 to 3 km. Tiers: de
 in slot 0, 2048-px layers, 134 MB); /m and coarse pointers `PHOTO_PROJECT_LEAN` (K 2, no draft, 1024-px layers, 11.2 MB,
 view-only; a tap on the /m shell opens `mobile/FacadePeek`), resolved once by `photoProjectFor` (`tuning.ts`). **Textures are PUBLIC (owner
 ruling 2026-10-22g, T190):** the `?cells=` world read is open to signed-out visitors, owner-unfiltered and unmoderated (only `REMOVED`
-rows are withheld, and no code sets it); C6 still governs the photo pins. Open: a real-phone measurement, the alignment
-UI for the tested-but-unwired `lib/geo/pnp.ts`, world-read paging (T192), a takedown path. Tunables: `conventions/globe-tuning.md`
+rows are withheld, and no code sets it); C6 still governs the photo pins. **Alignment from point pairs (F5, 2026-10-24c):**
+the panel's ALIGN TO THE BUILDINGS section pairs a photo point (a click on the full-screen photo) with a building point (a click
+on the globe — the orchestrator's `castFacadePoint` on both tap paths), `lib/geo/facadeAlign.ts` solves the pose from 4 pairs
+(`lib/geo/pnp.ts`; 6 release the lens) as one undoable journal entry, the record `alignment = { pairs, origin, solved }` rides
+SAVE / UPDATE and the server stamps `poseSource: "SOLVED"` while the saved pose equals the solve. Open: a real-phone
+measurement, world-read paging (T192), a takedown path, the F5 tails (T197: a loupe for the orbit pick, real-photo accuracy). Tunables: `conventions/globe-tuning.md`
 §PHOTO_PROJECT; wire: `conventions/contracts.md` (FacadePhotos, `/api/facades`). Decisions: `DECISIONS.md` 2026-10-18 to 2026-10-23e.
 
 ## 8. Cost posture (PoC = $0) [VERIFIED terms; INFERRED burn]
