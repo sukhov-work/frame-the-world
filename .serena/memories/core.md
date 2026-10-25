@@ -48,10 +48,10 @@ lever 3 · the slope settle). NEXT: the owner's live read → the ADR's §3.2–
   walker · and before): the Era index below.
 
 ## Standing facts (2026-10-24)
-- Gates: vitest **3,881 / 255 files** (2026-10-25) · `astro check` **0/0/29** (the hints are the dated baseline). Three timing tests flake under load
+- Gates: vitest **3,892 / 256 files** (2026-10-25c) · `astro check` **0/0/29** (the hints are the dated baseline). Three timing tests flake under load
   (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing; a session-end ship can abort on them (read the ship log's tail at boot).
-- `package.json` **1.36.45** → the 2026-10-25 ship bumps it; live **v1.36.45** (2026-10-24d, ship `6c945f7` PR #158 — F5's pairs UI + the SOLVED stamp +
-  the /m EXIT VIEW; before it v1.36.43, 2026-10-24b, PR #156). `verify-facades-live.mjs` is 13 legs (8b = the SOLVED stamp). Release:
+- `package.json` **1.36.48**; live **v1.36.48** (2026-10-25d, PR #161 `2420d70` — the DAY's rise / set; v1.36.47 PR #160 the same evening — every /m
+  radar surface at the fan's weights + the almanac; before them v1.36.45, 2026-10-24d, PR #158). `verify-facades-live.mjs` is 13 legs (8b = the SOLVED stamp). Release:
   `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (≤ 250 BYTES; `--skip-gates` only right after a ship's gates on the identical tree);
   `release.sh` uses the PINNED CLI (`node_modules/.bin/wix`). **`wix dev` on Node 24.10** (`~/.nvm/versions/node/v24.10.0/bin`), the CDP harnesses too.
   **`wix dev` cannot elevate (T173)** — persistence is proven only live (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
