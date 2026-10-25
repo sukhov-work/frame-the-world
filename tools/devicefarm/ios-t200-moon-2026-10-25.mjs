@@ -137,11 +137,16 @@ function discStats(png, fovDeg) {
       if (lum(img.data[i], img.data[i + 1], img.data[i + 2]) > thr) { sx += x; sy += y; n++; }
     }
   const area = Math.PI * r * r;
-  if (n > area * 0.2) { cx = sx / n; cy = sy / n; }
-  const core = ring(img, cx, cy, 0, r * 0.72);
-  const sky = ring(img, cx, cy, r * 1.6, r * 2.4);
+  // The device's FPV fov spans the CANVAS height (innerHeight), not the screenshot's (the status bar + Safari's chrome
+  // are in the PNG), so the predicted radius runs ~10 % large and a 0.72 r core would lap into the sky, diluting the
+  // tint toward the sky's blue (the first run read b/g 0.908 on a disc the twins read at 0.833). For a full moon the
+  // blob IS the disc: its area gives the radius the rings use.
+  let rUse = r;
+  if (n > area * 0.2) { cx = sx / n; cy = sy / n; rUse = Math.sqrt(n / Math.PI); }
+  const core = ring(img, cx, cy, 0, rUse * 0.72);
+  const sky = ring(img, cx, cy, rUse * 1.6, rUse * 2.4);
   if (!core || !sky) return null;
-  return { r: +r.toFixed(1), cx: Math.round(cx), cy: Math.round(cy), blobFrac: +(n / area).toFixed(2), core, sky,
+  return { r: +r.toFixed(1), rUsed: +rUse.toFixed(1), cx: Math.round(cx), cy: Math.round(cy), blobFrac: +(n / area).toFixed(2), core, sky,
     contrast: +((core.p50 - sky.p50) / Math.max(1, sky.p50)).toFixed(2),
     tint: { rg: +(core.rgb[0] / Math.max(1, core.rgb[1])).toFixed(3), bg: +(core.rgb[2] / Math.max(1, core.rgb[1])).toFixed(3) } };
 }

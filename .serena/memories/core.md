@@ -7,7 +7,7 @@ the `project/wip-*` leaves and `DECISIONS.md`; this root only indexes and states
 
 ## Status — 2026-10-25f (`mem:project/wip-2026-10-25-t200-moon-visibility`)
 **T200 THE MOON'S PERCEIVED VISIBILITY BUILT (rungs 1 + 2; no new shader pass), gated (vitest 3,942 / 259 · astro 0 errors), 60 / 60 on glass vs the
-baseline on the iPhone + Pixel + desktop twins → shipped + released (DECISIONS 2026-10-25f holds the version + the live proof + the farm run).**
+baseline on the iPhone + Pixel + desktop twins → shipped (PR #164) + RELEASED v1.36.51, proven live by the house Chrome AND the Device Farm iPhone (DECISIONS 2026-10-25g).**
 (1) the pure model `lib/ephemeris/moonVisibility.ts` (K&S · Kasten–Young · Schaefer extinction → the tint · the sky ladder · contrast = L_lit·T / L_sky ·
 Crumey · Danjon) → `{ verdict, label, reason, … }`; (2) the verdict on the TODAY rows (±40 min), the MOON section's `☾ NOW · …` line, the tracked moon's
 badge, the /m peek's ☾ `data-vis` — both shells; (3) the disc: `uMoonAir` / `uMoonTint` by the moon's OWN altitude (exactly 1 / white ≥ 12° and from orbit;
@@ -23,8 +23,8 @@ live read on the real phone → the T200 tails → the ADR's §3.2–3.6 → T19
 - 10-22 F1–F5 the facade flow (`wip-2026-10-21-facade-flow-f1-f3` · `wip-2026-10-22-owner-asks-t174-t183` · `wip-2026-10-22-f4-f5-release`): the photo ARRAY texture, K slots; **T173 `wix dev` cannot elevate** → persistence verified LIVE; 10-18 the projection prototype (one per-PASS matrix in VIEW space, T165).
 
 ## Standing facts (2026-10-25f)
-- Gates: vitest **3,942 / 259 files** · `astro check` **0 errors** (753 files; the hints are the dated baseline). Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing.
-- `package.json` / the live version: DECISIONS 2026-10-25f's release line (before it v1.36.48, 2026-10-25d, PR #161). Release:
+- Gates: vitest **3,942 / 259 files** · `astro check` **0 errors** (753 files; the hints are the dated baseline). Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`).
+- `package.json` **1.36.51**; live **v1.36.51** (2026-10-25g, PR #164 `39ab49e` — T200; proven live by the house Chrome + the farm iPhone). Release:
   `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (≤ 250 BYTES; `--skip-gates` only right after a ship's gates on the identical tree); `release.sh`
   uses the PINNED CLI (`node_modules/.bin/wix`). **`wix dev` on Node 24.10** (`~/.nvm/versions/node/v24.10.0/bin`), the CDP harnesses too.
   **`wix dev` cannot elevate (T173)** — persistence is proven only live (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
@@ -42,7 +42,7 @@ live read on the real phone → the T200 tails → the ADR's §3.2–3.6 → T19
   a dev server / the full vitest; browser suites queue on the one Chrome; close it after the last suite; never touch the owner's :9222.
   **T98: the VPN is a precondition for every terrain gate.** The Device Farm: `tools/devicefarm/` (`AWS_PROFILE=plux`,
   the iPhone 17 Pro; `--prod` reads the live site; ~8–10 device minutes a session; detached).
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T200**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (T1–T200).
 - Never a per-draw uniform from `mesh.onBeforeRender` (T165); scene modules never read stores (`fences.test.ts`).
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42 T46 T47 T50–T52 T56 T57 T113) ·
   the public-exposure class (T138/T139) until launch — the textures carve-out (T190) excepted.
