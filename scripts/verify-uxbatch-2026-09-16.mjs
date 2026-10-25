@@ -219,8 +219,9 @@ const GAIN = typeof gain === "number" ? gain : GAIN_EXPECT;
 // ── 6. 2D long press on the name → the PLANNED view turns to the sun ────────────────────
 {
   const az = await m.evalJs(`window.__cameraStore.getState().skyMarkers?.target?.azDeg ?? null`);
-  const rs = await m.evalJs(`[...document.querySelectorAll(".m-peek__rs-row")].map(e => e.textContent.trim())`);
-  check("4b. the peek row carries ↑ rise / ↓ set clocks", Array.isArray(rs) && rs.length === 2 && rs.every((t) => /^[↑↓]\s*(\d\d:\d\d|—)$/.test(t)), JSON.stringify(rs));
+  // 2026-10-25: the single stacked pair grew into the ALMANAC — ☀ ☾ + the object's own cell, two clocks each.
+  const rs = await m.evalJs(`[...document.querySelectorAll(".m-peek__alm-t")].map(e => e.textContent.trim())`);
+  check("4b. the peek row carries rise / set clocks (the almanac: ≥ 2 cells × 2 clocks)", Array.isArray(rs) && rs.length >= 4 && rs.length % 2 === 0 && rs.every((t) => /^(\d\d:\d\d|—)$/.test(t)), JSON.stringify(rs));
   const name = await m.rect(".m-peek__name");
   check("6a. the tracked target has a sky marker (the sun, up at 15:00)", typeof az === "number" && name !== null, `az ${az}`);
   await m.tap(name.x + Math.min(20, name.w / 2), name.y + name.h / 2, 750); // past ORCH.longPressMs

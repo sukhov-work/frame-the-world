@@ -13,7 +13,7 @@ import {
 import { usePlanStore } from "../../store/plan";
 import { useUploadStore } from "../../store/upload";
 import { aimAnchorFor } from "../../lib/geo/aimAnchor";
-import { radarStroke, type RadarBandKey } from "../../lib/geo/radarBands";
+import { fanStrokeCssPx, radarStroke, type RadarBandKey } from "../../lib/geo/radarBands";
 import { skylineSamplerFor, type SkylineSampler } from "../../lib/geo/horizonProfile";
 import { localDayWindow } from "../../lib/ephemeris/dayArc";
 import { bodyTarget, targetAzAlt, type SkyTarget } from "../../lib/ephemeris/targets";
@@ -232,7 +232,20 @@ function draw(
   // GL fan / MapWindow twin: annular band fills (emphasized body only), past/future rim at
   // the outer radius, body-colour rise/set spokes across the band, dials capped at the band
   // (target ray to the patch edge).
+  // Square ends from here on (2026-10-25): the roads' round caps used to leak into the radar —
+  // invisible on a 1.4 px stroke, a 1.5 px nub past every dial's end at the fan's weights (a sun
+  // dial's cap sat over the target ray's start). The GL fan's quads and the chart's strokes end
+  // square; the canvas defaults are those.
+  ctx.lineCap = "butt";
+  ctx.lineJoin = "miter";
   ctx.setTransform(1, 0, 0, 1, px / 2, px / 2);
+  // THE MAIN MAP'S WEIGHTS on /m (owner 2026-10-25, iPhone 17 Pro: "radar lines have different thickness
+  // on the main map and the FPV mini-map … make it exactly the same in the mini-map"): the GL fan's quads
+  // are radius fractions, so at the /m map's nadir its direction line is ≈3 CSS px and its cone legs ≈3.7
+  // while this canvas drew 1.4 / 2.1 (measured on the twins' glass: fan 2.7–3.4 vs 1.4–1.7). The mirror is
+  // the fan's own rule at the chart's fraction-of-height radius for THIS viewport (`fanStrokeCssPx`), so a
+  // Safari toolbar collapse that resizes the fan resizes this too. Desktop stays byte-identical (null).
+  const fan = mobileShell ? fanStrokeCssPx(window.innerHeight, true) : null;
   if (radar.length > 0) {
     // THE canvas radar painter since audit #3 A1-8 / T35 (panels/radarCanvas) — this block and
     // the expanded chart's twin were ≈95 hand-maintained duplicated lines. This surface is
@@ -251,6 +264,7 @@ function draw(
         targetRayPx: px,
         pastInk: cssVar(canvas, "--color-text-secondary"),
         fillAlphaK: 2,
+        strokeCssPx: fan ? { line: fan.line, rim: fan.rim } : undefined,
       },
       radar.map((b) => ({
         key: b.key,
@@ -286,10 +300,11 @@ function draw(
     // Boundary LEGS only — stroking the closed wedge drew the far ARC too, which no other
     // surface does (owner batch #5 item 1 consistency pass); a touch wider + brighter than
     // the 1px radar lines, the GL 1.25× rule.
-    // The /m stroke profile (2026-10-10) rides the legs too — the 1.25× rule holds on every shell.
+    // The /m stroke profile (2026-10-10) rides the legs too; on /m the legs are the GL cone's own
+    // rays (2026-10-25: `fan.cone`, 1.25 × the fan's direction line), desktop keeps the 1.5× rule.
     const stroke = radarStroke(mobileShell);
     ctx.globalAlpha = Math.min(1, FOCALCONE.edgeAlpha * stroke.lineAlphaK);
-    ctx.lineWidth = 1.5 * AIMCONES.strokePx * stroke.widthK * dpr;
+    ctx.lineWidth = (fan ? fan.cone : 1.5 * AIMCONES.strokePx * stroke.widthK) * dpr;
     ctx.strokeStyle = tokens.focalCone;
     ctx.beginPath();
     for (const a of [-Math.PI / 2 - half, -Math.PI / 2 + half]) {

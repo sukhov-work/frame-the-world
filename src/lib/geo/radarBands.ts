@@ -16,7 +16,7 @@
  * Pure and three-free — `lib/` may hold the model, `scene/` holds the geometry that draws it.
  */
 
-import { AIMCONES } from "../../components/globe/tuning";
+import { AIMCONES, FOCALCONE } from "../../components/globe/tuning";
 import { tokens } from "../theme/tokens";
 
 /** The three bodies a radar surface can carry a band for. */
@@ -70,4 +70,39 @@ const DESKTOP_STROKE: RadarStroke = Object.freeze({
  *  it, so a weight or an ink change reaches all of them at once. Pure. */
 export function radarStroke(mobile: boolean): RadarStroke {
   return mobile ? AIMCONES.mobileStroke : DESKTOP_STROKE;
+}
+
+/** The GL fan's stroke weights, in SCREEN CSS px. */
+export interface FanStrokeCssPx {
+  /** The direction lines (the sun / moon dials, the target's tracking ray). */
+  line: number;
+  /** The rim arcs + the rise/set spokes. */
+  rim: number;
+  /** The focal cone's two boundary rays. */
+  cone: number;
+}
+
+/**
+ * The GL fan's stroke weights at the nadir map view, in SCREEN CSS px (owner 2026-10-25, iPhone 17 Pro:
+ * "radar lines — the radar itself, the focus cone, the direction lines — have different thickness on the
+ * main map and the FPV mini-map; I like the increased thickness from the main map, make it exactly the
+ * same in the mini-map"). The fan's quads are RADIUS fractions — `AIMCONES.lineHalfWidthK`,
+ * `AIMCONES.rimHalfWidthK`, the cone's `FOCALCONE.edgeHalfWidthK` over its ray-extended reach
+ * (`AIMCONES.rayLenK`) — times the shell's `widthK`; inside its clamp band the fan's radius at nadir is
+ * the chart's fraction-of-height rule (`AIMCONES.mapRadiusHK`, × `mobileRadiusK` on /m — "the GL fan
+ * resolves to ≈1.02 × the viewport half-height"). Measured on the iPhone twin's glass before this mirror:
+ * the fan's ray 2.7–3.4 CSS px and its cone legs 4.2 against the mini-map's 1.4–1.7 and 2.1. A canvas
+ * that hands these to `drawRadarCanvas` (`strokeCssPx`) draws the fan's weights for ITS viewport. The match
+ * is the NOMINAL one — the fan at nadir, well above the ground, inside its radius clamp (150 m – 12 km);
+ * a street-zoom fan on the 150 m floor reads ~25 % heavier, a tilted or high one lighter — the fan is
+ * hidden in FPV, so there is no live fan to copy and the nominal rule is the honest mirror. Pure.
+ */
+export function fanStrokeCssPx(viewHeightCssPx: number, mobile: boolean): FanStrokeCssPx {
+  const r = viewHeightCssPx * AIMCONES.mapRadiusHK * (mobile ? AIMCONES.mobileRadiusK : 1);
+  const k = radarStroke(mobile).widthK;
+  return {
+    line: 2 * AIMCONES.lineHalfWidthK * k * r,
+    rim: 2 * AIMCONES.rimHalfWidthK * k * r,
+    cone: 2 * FOCALCONE.edgeHalfWidthK * AIMCONES.rayLenK * k * r,
+  };
 }

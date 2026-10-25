@@ -9,7 +9,16 @@ name only, never the product; never rename the `ftw:*` keys or the `uFtw*`/`FTW_
 Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session narrative lives in the `project/wip-*`
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-24c (`mem:project/wip-2026-10-24-f5-pairs-ui-exit-view`)
+## Status — 2026-10-25 (`mem:project/wip-2026-10-25-mobile-interlude-radar-almanac`; the F5 era: `wip-2026-10-24-f5-pairs-ui-exit-view`)
+**THE MOBILE INTERLUDE BUILT, gated (vitest 3,881 / 255 · astro 0/0/29), browser ALL PASS → the owner's T199 ruling ("consistent across all mobile
+surfaces") built the same day → SHIPPED + RELEASED on the owner's order (DECISIONS 2026-10-25b + the release line):** (1) the FPV mini-map's radar wears the MAIN MAP's strokes — measured on glass the GL fan's line was ~2× the canvases'
+(2.67 / 3.43 css px vs 1.68 / 1.41; the chart ≈ the mini-map): `lib/geo/radarBands.fanStrokeCssPx(viewH, mobile)` mirrors the fan's radius-fraction
+quads at the chart's radius rule (2.94 line · 1.47 rim · 3.67 legs on 874 px), the painter's optional `strokeCssPx { line, rim }`, `MiniMap` AND
+`MapWindow` hand it on /m (the mini-map ends its radar strokes SQUARE); desktop byte-identical; (2) the peek row's
+ALMANAC — ☀ ☾ rise / set permanently beside the object's own pair (dropped when it IS one), U+FE0E text glyphs, the bearings stacked, the row
+38.59 vs 38.56 px. NEXT: the owner's live read of 2026-10-24c + the interlude on the real iPhone → the ADR's §3.2–3.6 → T198 · T197 · T196.
+
+## Status — 2026-10-24c (the F5 era)
 **F5's PAIRS UI + SOLVED storage BUILT (T172's UI half) · the /m EXIT VIEW rides over the open map — gated (vitest 3,862 / 253 · astro 0/0/29),
 browser 13/13 on dev → SHIPPED PR #158 `6c945f7` → RELEASED v1.36.45 (2026-10-24d): the SOLVED stamp proven live (leg 8b), the section seen on the
 deployed panel; the edge THROTTLES a busy IP after a release (HTTP 429 on chunks + API — pause, one curl, a CDP probe; never a loop); the live
@@ -39,9 +48,9 @@ lever 3 · the slope settle). NEXT: the owner's live read → the ADR's §3.2–
   walker · and before): the Era index below.
 
 ## Standing facts (2026-10-24)
-- Gates: vitest **~3,805 / 252 files** · `astro check` **0/0/29** (the hints are the dated baseline). Three timing tests flake under load
+- Gates: vitest **3,881 / 255 files** (2026-10-25) · `astro check` **0/0/29** (the hints are the dated baseline). Three timing tests flake under load
   (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing; a session-end ship can abort on them (read the ship log's tail at boot).
-- `package.json` **1.36.45** (each ship bumps the patch); live **v1.36.45** (2026-10-24d, ship `6c945f7` PR #158 — F5's pairs UI + the SOLVED stamp +
+- `package.json` **1.36.45** → the 2026-10-25 ship bumps it; live **v1.36.45** (2026-10-24d, ship `6c945f7` PR #158 — F5's pairs UI + the SOLVED stamp +
   the /m EXIT VIEW; before it v1.36.43, 2026-10-24b, PR #156). `verify-facades-live.mjs` is 13 legs (8b = the SOLVED stamp). Release:
   `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (≤ 250 BYTES; `--skip-gates` only right after a ship's gates on the identical tree);
   `release.sh` uses the PINNED CLI (`node_modules/.bin/wix`). **`wix dev` on Node 24.10** (`~/.nvm/versions/node/v24.10.0/bin`), the CDP harnesses too.
@@ -53,7 +62,8 @@ lever 3 · the slope settle). NEXT: the owner's live read → the ADR's §3.2–
 - **The house Chrome's profile carries EXTENSIONS** (`factory is not a function` — harnesses filter `chrome-extension://`); `curl :9333/json/version`
   before a run; relaunch `verify-chrome.mjs --headless --port 9333 --profile /tmp/ftw-cdp` — `release.sh`'s step 7 leaves it DEAD (relaunch
   before the live DOM leg). Synthetic rows ride in-page fetch stubs. The ship hook's `log()` lines go to STDOUT in daemon mode.
-- **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`. **The house Chrome profile keeps a seeded
+- **The radar on glass since 2026-10-10:** every stroke in screen CSS px through `radarStroke(mobile)`; **since 2026-10-25 BOTH /m canvases draw the
+  GL fan's weights** (`fanStrokeCssPx`; the mini-map with square ends) — desktop keeps `strokePx`. **The house Chrome profile keeps a seeded
   member cookie** (T156) — signed-out suites before a signing-in one. A SkyTarget carries a method: harnesses import `bodyTarget` in-page.
 - **The /m seats since 2026-09-25:** the tab row 27 px; `.m-actions` 9.6rem · `.m-joy` 10rem · `--m-altcol-bottom-base` 15.2rem.
 - **User models since 2026-09-30:** the FPV world read is the EYE's 16 km square = 5 queries per cover change; "resident" = 3 km OR in view + big.
@@ -62,7 +72,7 @@ lever 3 · the slope settle). NEXT: the owner's live read → the ADR's §3.2–
   Chrome / a dev server / the full vitest; browser suites queue on the one Chrome; close it after the last suite; never touch the owner's :9222.
   **T98: the VPN is a precondition for every terrain gate** (ion 401 = ok, 403 = blocked).
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14), expect to restart TWICE; never edit a served `src/` module while a harness runs.
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T196**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T199**, every row dated).
 - **Never write a per-draw uniform from `mesh.onBeforeRender`** (T165). Scene modules never read stores (`fences.test.ts`).
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42 T46 T47 T50–T52 T56 T57 T113) ·
   the public-exposure class (T138/T139) until public launch — the textures carve-out (T190) excepted.
@@ -124,6 +134,8 @@ r4 08-22 · r5 09-06 · r6 09-07 · **r7 2026-09-17 = 09-06o → 09-10f**.
 - The owner's live read → five asks T187–T191 (T190 PUBLIC) + F6 ordered (10-22g) · 10-22-owner-asks-t187-t191
 - The five asks + F6 BUILT → v1.36.42; the pure PnP solve; the drafts; T193 / T194 (10-23) · 10-23-owner-asks-build-t187-t191-f6
 - T195 the pins' ground seat refines · the building-textures ADR FINAL · the guide chapter verified + re-shot · the release (10-24) · 10-24-t195-adr-guide-release
+- F5's PAIRS UI + the SOLVED stamp · the /m EXIT VIEW over the map → v1.36.45 (10-24c/d) · 10-24-f5-pairs-ui-exit-view
+- The mobile interlude: every /m radar surface wears the fan's strokes · the peek row's almanac → released (10-25) · 10-25-mobile-interlude-radar-almanac
 
 ## Graph index — every memory except the era leaves
 - top level: `memory_maintenance` (rules + caps) · `suggested_commands` · `task_completion` · `tech_stack` ·

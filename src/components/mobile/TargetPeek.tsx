@@ -12,6 +12,13 @@
  * the sheet. The gesture is the ORCH shape (touch only, 500 ms, 6 px cancel, trailing click
  * swallowed — the TabBar's twin); it arms only when the press STARTS on the name, so the rest of
  * the row stays a plain tap-to-open.
+ *
+ * Owner 2026-10-25: the SUN's and the MOON's next rise / set ride the row PERMANENTLY beside the object's
+ * own pair ("so you can always have essential info at hand and don't have to go to plan each time") — one
+ * 2-row cell per body with its glyph (☀ amber · ☾ moonlight · the object in the accent), the rise ↑ over
+ * the set ↓, the arrows once as a legend; the object's own cell is dropped when it IS the sun or the moon.
+ * The bearings stack in the same small grammar (altitude over azimuth) so three pairs fit a 402 px row
+ * without the bar growing a pixel: the cluster's height is the two 0.56rem lines it always was.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,7 +27,7 @@ import { usePlanStore } from "../../store/plan";
 import { useCameraStore } from "../../store/camera";
 import { localTimeStr, sceneTimeMs, useTimeStore } from "../../store/time";
 import { aimAtSkyBody } from "../../store/skyAim";
-import { targetAzAlt, targetShortName, type SkyTarget } from "../../lib/ephemeris/targets";
+import { bodyTarget, targetAzAlt, targetShortName, type SkyTarget } from "../../lib/ephemeris/targets";
 import { nextRiseSet, type RiseSet } from "../../lib/ephemeris/riseSet";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { cardinal, EM_DASH } from "../../lib/format/readout";
@@ -51,6 +58,24 @@ function useNextRiseSet(target: SkyTarget, nowMs: number, latDeg: number, lonDeg
 
 /** `↑ 05:42` — the browser's local clock, the dock's own grammar; an em dash when none. */
 const clock = (ms: number | null): string => (ms === null ? EM_DASH : localTimeStr(ms));
+
+/** The permanent almanac bodies (owner 2026-10-25). Module constants: a SkyTarget carries a method and the
+ *  rise/set memo keys read `target.id`, so one instance each is all the row ever needs. */
+const SUN_TARGET = bodyTarget("sun");
+const MOON_TARGET = bodyTarget("moon");
+/** U+FE0E, the TEXT presentation selector: ☀ (U+2600) and ☄ (U+2604) are Emoji=Yes characters that iOS WebKit
+ *  may fall back to Apple Color Emoji for when the mono stack lacks them; the selector keeps them as text so the
+ *  cell inks (amber / moonlight / accent) hold. ☾ has no emoji form; the selector is inert on it. */
+const TEXT_GLYPH = "\uFE0E";
+/** The label's clock — "none" where the row prints an em dash (a reader says "em dash" or skips it). */
+const say = (ms: number | null): string => (ms === null ? "none" : localTimeStr(ms));
+
+interface AlmanacCell {
+  key: "sun" | "moon" | "target";
+  glyph: string;
+  name: string;
+  rs: RiseSet;
+}
 
 export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
   const target = useSkyStore((s) => s.target);
@@ -83,6 +108,20 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
   );
   const upNow = now.altDeg > 0;
   const riseSet = useNextRiseSet(target, minuteKey * 60_000, latDeg, lonDeg);
+  // The almanac (owner 2026-10-25): the sun's and the moon's pairs always, the object's own pair only when
+  // it is neither — a tracked sun or moon would print its times twice. Hooks run unconditionally; the
+  // render picks. Both finders are astronomy-engine's own (~1 ms), memoised on the 10-min bucket.
+  const sunRs = useNextRiseSet(SUN_TARGET, minuteKey * 60_000, latDeg, lonDeg);
+  const moonRs = useNextRiseSet(MOON_TARGET, minuteKey * 60_000, latDeg, lonDeg);
+  const ownPair = target.kind !== "sun" && target.kind !== "moon";
+  const almanac: AlmanacCell[] = [
+    { key: "sun", glyph: kindGlyph("sun"), name: "Sun", rs: sunRs },
+    { key: "moon", glyph: kindGlyph("moon"), name: "Moon", rs: moonRs },
+    ...(ownPair
+      ? [{ key: "target" as const, glyph: kindGlyph(target.kind), name: targetShortName(target), rs: riseSet }]
+      : []),
+  ];
+  const almanacLabel = almanac.map((a) => `${a.name} rise ${say(a.rs.riseMs)}, set ${say(a.rs.setMs)}`).join("; ");
 
   // The long press on the NAME (the ORCH shape — TabBar's twin, one timer for the row) — with
   // one hardening the twin lacks: the press is judged by the pointer events' OWN timestamps on
@@ -175,10 +214,10 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
       }}
 
       onContextMenu={(e) => e.preventDefault()}
-      aria-label={`Tracked target: ${target.name} — open details; hold the name to aim the view at it`}
+      aria-label={`Tracked target: ${target.name}. ${almanacLabel}. Open details; hold the name to aim the view at it`}
     >
       <span className="m-peek__glyph" aria-hidden="true">
-        {kindGlyph(target.kind)}
+        {kindGlyph(target.kind) + TEXT_GLYPH}
       </span>
       <span className="m-peek__name" title="Hold to aim at it">
         {targetShortName(target).toUpperCase()}
@@ -190,26 +229,31 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
       ) : (
         !upNow && <span className="m-badge">BELOW</span>
       )}
-      {/* Next rise ↑ / next set ↓ (owner 2026-09-16) — stacked, left of the bearings. */}
-      <span
-        className="m-peek__rs"
-        aria-label={`Next rise ${clock(riseSet.riseMs)}, next set ${clock(riseSet.setMs)}`}
-      >
-        <span className="m-peek__rs-row">
-          <span className="m-peek__rs-k" aria-hidden="true">
-            ↑
-          </span>
-          {clock(riseSet.riseMs)}
+      {/* The ALMANAC (owner 2026-10-25; the single stacked pair of 2026-09-16 grew into it): the next rise ↑
+          over the next set ↓, one 2-row cell per body with its glyph — ☀ and ☾ always, the object's own pair
+          beside them unless it IS one of them. The same two 0.56rem lines, so the row is not a pixel taller. */}
+      <span className="m-peek__alm" aria-hidden="true">
+        <span className="m-peek__alm-k">
+          <span>↑</span>
+          <span>↓</span>
         </span>
-        <span className="m-peek__rs-row">
-          <span className="m-peek__rs-k" aria-hidden="true">
-            ↓
+        {almanac.map((a) => (
+          <span className="m-peek__alm-cell" data-body={a.key} key={a.key}>
+            <span className={`m-peek__alm-glyph m-peek__alm-glyph--${a.key}`}>{a.glyph + TEXT_GLYPH}</span>
+            <span className="m-peek__alm-times">
+              <span className="m-peek__alm-t">{clock(a.rs.riseMs)}</span>
+              <span className="m-peek__alm-t">{clock(a.rs.setMs)}</span>
+            </span>
           </span>
-          {clock(riseSet.setMs)}
-        </span>
+        ))}
       </span>
+      {/* The bearings — altitude over azimuth + cardinal, stacked in the almanac's grammar (the one-line
+          "12° · 245° SW" took the width three pairs need); a hairline separates "when" from "where". */}
       <span className="m-peek__pos">
-        {now.altDeg.toFixed(0)}° · {Math.round(now.azDeg)}° {cardinal(now.azDeg)}
+        <span>{now.altDeg.toFixed(0)}°</span>
+        <span>
+          {Math.round(now.azDeg)}° {cardinal(now.azDeg)}
+        </span>
       </span>
       {/* Pull-up hint (owner 2026-08-19, batch item 7: "not obvious this opens") — an own
           element, accent-coloured, gently nudging; reduced-motion opts out in chrome.css. */}

@@ -114,9 +114,13 @@
   border-bottom: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
   padding: 0.5rem 0.9rem;
   text-align: left;
+  /* 2026-10-25: with the almanac only the name can shrink — under Android's large-text scaling or a long
+     name + BEHIND the fixed parts can exceed the row; clip at the row's edge rather than push past it. */
+  overflow: hidden;
 }
 .m-peek__glyph {
   color: var(--color-accent);
+  font-variant-emoji: text;
 }
 .m-peek__name {
   font-weight: 500;
@@ -131,15 +135,16 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-/* Next rise ↑ / next set ↓ (owner 2026-09-16) — two small stacked clocks left of the bearings.
-   The right cluster is [rs][pos][▲]; this element carries the auto margin that used to sit on
-   .m-peek__pos so the name still takes the slack. */
-.m-peek__rs {
+/* The ALMANAC (owner 2026-10-25): ☀ and ☾ next rise / set PERMANENTLY + the tracked object's own pair —
+   the rise ↑ over the set ↓, one 2-row cell per body with its glyph (sun amber · moon moonlight · the object
+   in the accent), the arrows ONCE as a legend column. The same two 0.56rem / 1.15 lines as the single
+   stacked pair before it (owner 2026-09-16), so the row is not a pixel taller. The right cluster is
+   [alm][pos][▲]; this element carries the auto margin so the name still takes the slack. */
+.m-peek__alm {
   margin-left: auto;
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
+  align-items: center;
+  gap: 5px;
   font-size: 0.56rem;
   line-height: 1.15;
   letter-spacing: 0.04em;
@@ -147,19 +152,63 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.m-peek__rs-row {
+.m-peek__alm-k,
+.m-peek__alm-times {
   display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
 }
-.m-peek__rs-k {
+.m-peek__alm-k {
   color: var(--color-text-muted);
   font-size: 0.5rem;
+  line-height: 1.288; /* 0.56 × 1.15 / 0.5 — the arrows' two rows sit exactly on the clocks' rows */
 }
+.m-peek__alm-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.m-peek__alm-glyph {
+  font-size: 0.56rem;
+  line-height: 1;
+  color: var(--color-text-muted);
+  font-variant-emoji: text; /* with the U+FE0E selector in the markup: never a colour emoji on iOS */
+}
+.m-peek__alm-glyph--sun {
+  color: var(--color-sun-glow);
+}
+.m-peek__alm-glyph--moon {
+  color: var(--color-moonlight);
+}
+.m-peek__alm-glyph--target {
+  color: var(--color-accent);
+}
+/* The bearings, stacked (altitude over azimuth + cardinal) in the almanac's grammar — the one-line
+   "12° · 245° SW" at 0.68rem took 86–93 px, the width the three pairs need; the stack is ~40 px at the
+   SAME two-row height. A hairline on its left separates "when" from "where". */
 .m-peek__pos {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding-left: 6px;
+  border-left: 1px solid color-mix(in srgb, var(--color-text-muted) 22%, transparent);
+  font-size: 0.56rem;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* A narrow phone (360–375 px): the gaps tighten so a long name keeps its letters. */
+@media (max-width: 375px) {
+  .m-peek {
+    gap: 7px;
+  }
+  .m-peek__alm {
+    gap: 4px;
+  }
 }
 
 /* Pull-up hint (owner 2026-08-19) — its own accent element with a gentle nudge loop, so the

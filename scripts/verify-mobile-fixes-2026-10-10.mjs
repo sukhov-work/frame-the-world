@@ -11,6 +11,9 @@
 //   4. THE SAVE VIEW SHEET RIDES ABOVE THE KEYBOARD — signed in, a synthetic visualViewport
 //      shrink lifts the sheet by the inset (the owner's Pixel showed it hidden behind the keys).
 //   5. The desktop twin — the TARGET panel's row + solo rule, the mini-map's unchanged weights.
+// 2026-10-25 (owner: "make the mini-map's lines exactly the main map's"): the /m MINI-MAP now wears the GL fan's
+//   radius-fraction weights (`lib/geo/radarBands.fanStrokeCssPx` — ≈2.9 css px ray · ≈3.7 legs on the 874 twin),
+//   so leg 1's mobile expectations read `expectMiniWidth`; since 2026-10-25b the chart (leg 2c) wears it too; the desktop keeps the old weight.
 // Usage: ~/.nvm/versions/node/v24.10.0/bin/node scripts/verify-mobile-fixes-2026-10-10.mjs [cdpPort] [--legs 1,2,3,4,5]
 // Screenshots → verify-shots/mobile-fixes-2026-10-10/ (git-ignored). Runs on the ONE house Chrome.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -243,6 +246,10 @@ const borderProbe = (sel) => `(() => {
 
 // ================================================================================================
 const expectWidth = (kind, dpr, mobile) => (kind === "ray" ? STROKE_PX : STROKE_PX * CONE_LEG_K) * (mobile ? MOBILE_WIDTH_K : 1) * dpr;
+// The /m mini-map since 2026-10-25: the GL fan's weights at the chart's fraction-of-height radius for the viewport
+// (AIMCONES.lineHalfWidthK 0.003 · FOCALCONE.edgeHalfWidthK 0.000625 × rayLenK 6 · mapRadiusHK 0.5 × mobileRadiusK 0.8).
+const expectMiniWidth = (kind, dpr, mobile, viewH) =>
+  mobile ? (kind === "ray" ? 2 * 0.003 : 2 * 0.000625 * 6) * MOBILE_WIDTH_K * (viewH * 0.5 * 0.8) * dpr : expectWidth(kind, dpr, false);
 const within = (got, want, lo = 1.0, hi = 2.6) => got != null && got >= want - lo && got <= want + hi;
 const results = {};
 
@@ -261,10 +268,10 @@ if (LEGS.includes("1")) {
     results[device] = probe;
     const wantStore = Math.round((mobile ? 124 : 200) * DEVICES[device].deviceScaleFactor);
     check(`1.${device}b the mini-map's store is the GLASS (${wantStore} px = card ${mobile ? 124 : 200} css × DPR ${DEVICES[device].deviceScaleFactor})`, probe.store === wantStore, `store ${probe.store} css ${probe.css} dpr ${probe.dpr}`);
-    const rayWant = expectWidth("ray", DEVICES[device].deviceScaleFactor, mobile);
-    const legWant = expectWidth("leg", DEVICES[device].deviceScaleFactor, mobile);
-    check(`1.${device}c the target ray is ${rayWant.toFixed(1)} store px (= ${(rayWant / DEVICES[device].deviceScaleFactor).toFixed(2)} css px) on the glass`, within(probe.cyan?.widthPx, rayWant), `got ${probe.cyan?.widthPx ?? "none"} at ${probe.cyan?.thDeg}°`);
-    check(`1.${device}d the focal-cone legs are ${legWant.toFixed(1)} store px (the 1.5× rule)`, within(probe.pink?.widthPx, legWant), `got ${probe.pink?.widthPx ?? "none"} at ${probe.pink?.thDeg}°`);
+    const rayWant = expectMiniWidth("ray", DEVICES[device].deviceScaleFactor, mobile, DEVICES[device].height);
+    const legWant = expectMiniWidth("leg", DEVICES[device].deviceScaleFactor, mobile, DEVICES[device].height);
+    check(`1.${device}c the target ray is ${rayWant.toFixed(1)} store px (= ${(rayWant / DEVICES[device].deviceScaleFactor).toFixed(2)} css px) on the glass${mobile ? " — the GL fan's weight (2026-10-25)" : ""}`, within(probe.cyan?.widthPx, rayWant), `got ${probe.cyan?.widthPx ?? "none"} at ${probe.cyan?.thDeg}°`);
+    check(`1.${device}d the focal-cone legs are ${legWant.toFixed(1)} store px (${mobile ? "the GL cone's rays, 1.25× the line" : "the 1.5× rule"})`, within(probe.pink?.widthPx, legWant), `got ${probe.pink?.widthPx ?? "none"} at ${probe.pink?.thDeg}°`);
     if (probe.cyan) {
       const edge = await m.evalJs(rayProbe(".mm-canvas", probe.W / 2, probe.H / 2, probe.cyan.thDeg, probe.W * 0.44 * 0.72));
       check(`1.${device}e the ray runs to the patch edge (past the target band)`, edge.share >= 0.7 && edge.tailCyan >= 1, `share ${edge.share} of ${edge.samples} · tail ${edge.tailCyan}/${edge.tailN} · last r ${edge.lastInPx}`);
@@ -293,8 +300,10 @@ if (LEGS.includes("2")) {
   await sleep(3000);
   const chart = await m.evalJs(ringProbe(".mw-canvas", 0.44, "chart"));
   const dpr = chart.dpr;
-  const rayWant = expectWidth("ray", Math.min(DEVICES.iphone.deviceScaleFactor, 2), true);
-  check("2c the chart's target ray wears the /m weight (store capped at 2×, so 2.8 store px = 1.4 css px)", within(chart.cyan?.widthPx, rayWant), `got ${chart.cyan?.widthPx ?? "none"} at ${chart.cyan?.thDeg}° · store ${chart.W}×${chart.H} dpr ${dpr}`);
+  // 2026-10-25b: the chart wears the GL fan's weight too (owner: every mobile surface consistent) — at the 2× store
+  // cap the 2.94 css px ray is 5.9 store px (was 2.8).
+  const rayWant = expectMiniWidth("ray", Math.min(DEVICES.iphone.deviceScaleFactor, 2), true, DEVICES.iphone.height);
+  check(`2c the chart's target ray wears the GL fan's weight (store capped at 2×, so ${rayWant.toFixed(1)} store px = ${(rayWant / 2).toFixed(2)} css px)`, within(chart.cyan?.widthPx, rayWant), `got ${chart.cyan?.widthPx ?? "none"} at ${chart.cyan?.thDeg}° · store ${chart.W}×${chart.H} dpr ${dpr}`);
   await m.shoot("02-chart-centred");
   if (chart.cyan) {
     // Pan the chart AGAINST the ray (the anchor goes the way the ray comes from) — 5 × 120 css px

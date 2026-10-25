@@ -280,7 +280,12 @@ place deletes were dead in production until 2026-09-19. Fence: `test/lib/api/jso
 - `components/panels/` also carries **`radarCanvas.ts`** — THE canvas radar painter shared by the
   expanded chart and the FPV mini-map (≈95 duplicated lines before audit #3 A1-8/T35). It is a
   plain module, not a component: the two surfaces own their transforms and hand it a centre, a
-  twist, a unit radius and their bodies. **Since 2026-10-10 every stroke is authored in SCREEN
+  twist, a unit radius and their bodies. **Since 2026-10-25 the /m mini-map hands it the GL fan's
+  per-kind weights** (`strokeCssPx` from `lib/geo/radarBands.fanStrokeCssPx(innerHeight, true)`
+  — the fan's radius-fraction quads at the chart's fraction-of-height radius: ≈2.9 CSS px line ·
+  ≈1.5 rim · ≈3.7 cone legs on an 874 px phone) **and since 2026-10-25b so does the /m chart** (for its
+  own canvas height — its `rBase` is the same radius rule; owner: every mobile surface consistent); the
+  desktop twins pass nothing and stay byte-identical. **Since 2026-10-10 every stroke is authored in SCREEN
   CSS px** (`AIMCONES.strokePx` × `lib/geo/radarBands.radarStroke(mobile)` × the store/css ratio
   the surface hands it): the mini-map sizes its backing store to the GLASS (`clientWidth ×
   devicePixelRatio` — the old `200 × min(DPR, 2)` store was MINIFIED into the 124 px /m card on

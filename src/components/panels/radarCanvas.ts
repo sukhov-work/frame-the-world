@@ -80,6 +80,11 @@ export interface RadarCanvasOpts {
   pastInk: string;
   /** Fill-alpha multiplier; 1 on the chart, 2 on the mini-map's dense patch. */
   fillAlphaK?: number;
+  /** Per-kind stroke weights in SCREEN CSS px (owner 2026-10-25: the /m mini-map wears the GL fan's —
+   *  `lib/geo/radarBands.fanStrokeCssPx`): `rim` for the rim arcs + the rise/set spokes, `line` for the
+   *  direction lines. Absent → every stroke is `AIMCONES.strokePx × widthK` (the chart, the desktop
+   *  mini-map: byte-identical to before). */
+  strokeCssPx?: { line: number; rim: number };
 }
 
 /**
@@ -93,7 +98,11 @@ export function drawRadarCanvas(
 ): void {
   const ink = radarStroke(o.mobile);
   const fillK = (o.fillAlphaK ?? 1) * ink.fillAlphaK;
-  const lineW = AIMCONES.strokePx * ink.widthK * o.dpr;
+  // Screen CSS px × the store ratio — ONE weight for every stroke unless the surface hands the GL fan's
+  // per-kind weights (2026-10-25): the rim arcs + spokes at `rim`, the direction lines at `line`.
+  const baseW = AIMCONES.strokePx * ink.widthK;
+  const rimW = (o.strokeCssPx?.rim ?? baseW) * o.dpr;
+  const lineW = (o.strokeCssPx?.line ?? baseW) * o.dpr;
   /** Compass az (N=0, CW) → canvas point (north −y, east +x) + the chart rotation. */
   const pt = (azDeg: number, rr: number): [number, number] => {
     const th = (azDeg - 90) * DEG + o.rotRad;
@@ -139,7 +148,7 @@ export function drawRadarCanvas(
     sectorPath(b.future, rIn, rOut);
     ctx.fill();
     ctx.globalAlpha = AIMCONES.rimAlpha * ink.rimAlphaK;
-    ctx.lineWidth = lineW;
+    ctx.lineWidth = rimW; // the rim arcs AND the spokes below (the width state carries)
     ctx.strokeStyle = o.pastInk;
     arcPath(b.past, rOut);
     ctx.stroke();

@@ -180,7 +180,14 @@ the band mapping itself lives in `lib/geo/radarBands` since audit #3 A1-7):
   stroke: the canvas lines and fills, the GL direction line (`line.scale.x`), the GL rim arcs
   and rise/set spokes, and the focal cone's boundary rays (canvas legs + GL quads — the 1.25×
   rule holds because both carry the same `widthK`). No lifted alpha may exceed 1
-  (`radarStroke2026-10-10.test`). `rimHalfWidthK` is the GL rim/spoke QUAD half-width in
+  (`radarStroke2026-10-10.test`). **The /m MINI-MAP wears the GL fan's weights, not `strokePx`
+  (owner 2026-10-25 — "exactly the same as the main map"):** `lib/geo/radarBands.fanStrokeCssPx(viewH,
+  mobile)` is the fan's own geometry (`lineHalfWidthK` · `rimHalfWidthK` · `edgeHalfWidthK × rayLenK`,
+  × `widthK`) at the chart's radius rule (`mapRadiusHK × mobileRadiusK × viewH`), handed to the
+  painter as `strokeCssPx { line, rim }` and to the cone legs as `cone`; a change to any of those
+  knobs moves both canvases with the fan — the /m CHART too since 2026-10-25b (`fanStrokeCssPx(h / dpr, true)`;
+  T199 built on the owner's "consistent across all mobile surfaces" ruling). Desktop keeps `strokePx`.
+  `rimHalfWidthK` is the GL rim/spoke QUAD half-width in
   unit-radius units — they were `LineSegments`, one device pixel at whatever ratio the renderer
   ran (1.25 lean / 1.5 on the flat map / 2 on a retina desktop), which is why the "sectors and
   radiuses" read as hairlines; at 0.0015 the rim is ≈1.5 CSS px on every surface (half the

@@ -10,7 +10,7 @@ import { useUploadStore } from "../../store/upload";
 import { aimAnchorFor } from "../../lib/geo/aimAnchor";
 // audit #3 A1-7 / T35: the band allocation is ONE model (lib/geo/radarBands) — this file used
 // to carry a hand-maintained copy of it, as did MiniMap, with no cross-file fence.
-import { bandFor, type RadarBandKey } from "../../lib/geo/radarBands";
+import { bandFor, fanStrokeCssPx, radarStroke, type RadarBandKey } from "../../lib/geo/radarBands";
 import {
   chartTransform,
   lonLatToTileF,
@@ -374,6 +374,11 @@ export default function MapWindow() {
       }
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
+      // THE MAIN MAP'S WEIGHTS on /m (owner 2026-10-25b: "consistently thick and stylised, as the main map,
+      // across all mobile surfaces") — the GL fan's radius-fraction quads at this chart's own radius rule
+      // (`rBase` below IS `mapRadiusHK × mobileRadiusK × h`), in CSS px of the canvas (`h / dpr`): the
+      // painter's rim / line weights and the cone legs below. Desktop passes nothing (byte-identical).
+      const fan = mobileShell ? fanStrokeCssPx(h / dpr, true) : null;
       const camNow = useCameraStore.getState();
       // (The QA-slice-A eye-motion re-arm lived here; owner 2026-08-22 made the override
       //  permanent — see the FOLLOW_REARM_M note at the top. Nothing clears the latch but ◉.)
@@ -507,6 +512,7 @@ export default function MapWindow() {
             // end the ray mid-screen once the anchor was more than a diagonal off the canvas).
             targetRayPx: chartRayReachPx(w, h, ax, ay),
             pastInk: tokens.textSecondary,
+            strokeCssPx: fan ? { line: fan.line, rim: fan.rim } : undefined,
           },
           radarBodies.map((b) => {
             const day = aimDayFor(b.key, b.target, anchor, nowMs);
@@ -629,9 +635,11 @@ export default function MapWindow() {
           ctx.closePath();
           ctx.fill();
           // Boundary legs: a touch wider + brighter than the 1px radar lines (owner batch #5
-          // item 1 — "just a bit more distinct than base"), the GL 1.25× rule.
-          ctx.globalAlpha = FOCALCONE.edgeAlpha;
-          ctx.lineWidth = 1.5 * dpr;
+          // item 1 — "just a bit more distinct than base"), the GL 1.25× rule. On /m the legs are
+          // the GL cone's own rays (`fan.cone`, 2026-10-25b) under the shell's ink lift, like the
+          // mini-map's and the fan's; desktop keeps 1.5 CSS px at the plain edge alpha.
+          ctx.globalAlpha = Math.min(1, FOCALCONE.edgeAlpha * radarStroke(mobileShell).lineAlphaK);
+          ctx.lineWidth = (fan ? fan.cone : 1.5) * dpr;
           ctx.strokeStyle = tokens.focalCone;
           ctx.beginPath();
           ctx.moveTo(px, py);
