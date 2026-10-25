@@ -24,7 +24,7 @@ live read on the real phone → the T200 tails → the ADR's §3.2–3.6 → T19
 
 ## Standing facts (2026-10-25f)
 - Gates: vitest **3,942 / 259 files** · `astro check` **0 errors** (753 files; the hints are the dated baseline). Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`).
-- `package.json` **1.36.51**; live **v1.36.51** (2026-10-25g, PR #164 `39ab49e` — T200; proven live by the house Chrome + the farm iPhone). Release:
+- `package.json` **1.36.53**; live **v1.36.53** (2026-10-26b, PR #166 `c01eea8` — T201 the TEX toggle hides the facade icons; T200 = v1.36.51, PR #164). Release:
   `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (≤ 250 BYTES; `--skip-gates` only right after a ship's gates on the identical tree); `release.sh`
   uses the PINNED CLI (`node_modules/.bin/wix`). **`wix dev` on Node 24.10** (`~/.nvm/versions/node/v24.10.0/bin`), the CDP harnesses too.
   **`wix dev` cannot elevate (T173)** — persistence is proven only live (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
