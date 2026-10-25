@@ -1,7 +1,8 @@
 # wip 2026-10-24c — F5's PAIRS UI + SOLVED storage (T172's UI half) · the /m EXIT VIEW over the open map — BUILT + BROWSER-PROVEN on dev
 
 Mode: implement · Tier: deep · Memory: serena · Model: claude-fable-5-1 (main) + 3 Opus 5.5 subagents (the /m EXIT VIEW slice · the server's SOLVED stamp + the bodies · the panel section).
-Status: **BUILT, GATED (vitest 3,859 / 253 · `astro check` 0 / 0 / 29), BROWSER 13/13 on dev (`verify-facade-align-2026-10-24.mjs`), RECORDED (DECISIONS 2026-10-24c · backlog T172 / T197 · the ADR §3.1 · ARCHITECTURE §7g · contracts · the guide). The ship + the release follow (see the DECISIONS line after 2026-10-24c / NEXT_SESSION).**
+Status: **DONE — BUILT, GATED (vitest 3,862 / 253 · `astro check` 0 / 0 / 29), BROWSER 13/13 on dev, SHIPPED (PR #158 `6c945f7`, landed in 60 s), RELEASED v1.36.45 (2026-10-24d), the SOLVED stamp PROVEN LIVE (leg 8b), the pairs section seen on the deployed UI (a re-opened row: ALIGN TO THE BUILDINGS · 4 PAIRS), the served chunks proven (`FacadePhotoFlow.CxaJ2kTF.js` · `MobileShell.D6bhRYHp.js` · `Joystick.BjfjQJPp.css` == dist). The only live misses were the DOM halves of the two verifiers — HTTP 429 from the edge throttling this IP (the UI showed its own "COULD NOT LOAD — HTTP 429 · RETRY"), not the deploy; a second pass after a pause is recorded in DECISIONS.**
+Release trap (NEW): the edge rate-limits a busy IP after a release — pause 2–3 min, ONE curl, a CDP probe; never a curl loop (it re-arms the throttle and returns empty bodies that read as "the CSS lacks the rule"). fpv.css rides `Joystick.<hash>.css`; `dist/client/_astro/` holds the uploaded build for `cmp`.
 Authority: `NEXT_SESSION_PROMPT.md` (2026-10-24) step 2 · the owner's micro-ask (verbatim): "on mobile in FPV minimap also add same button (in the same bottom place) `exit view` that we have in normal FPV screen (for ease of navigation, otherwise you need everytime to close minimap first and only then you can exist to global map)". No owner live read of T195 arrived (step 1 skipped).
 Boot: master `e748d31` == origin, clean; no SHIP_ATTENTION; live v1.36.43.
 
@@ -40,6 +41,9 @@ Boot: master `e748d31` == origin, clean; no SHIP_ATTENTION; live v1.36.43.
 - A re-opened SOLVED row's raw `poseSnapshot()` holds null roll / H-FOV overrides → `sameFacadePose` never matched → EXIF badges while the server said SOLVED. Now `facadePoseIsSolved` (FacadeAlignSection.tsx) compares the six numbers RESOLVED through the EXIF seeds (`facadeResolvedPoses`), the server's own compare; 3 tests pin the re-open.
 - "Carry `alignment` only when non-null" + a null from the save store = a CLEAR + UPDATE kept the stored pairs (they came back on the next open). The save store now always provides it (`{}` with no pairs); the body rule stays for callers that never knew the row's pairs.
 - Noted, not fixed: `mem:core` is ~16.9 KB against its 12 KB cap (pre-existing; a maintenance pass) · live leg 8b PATCHes right after leg 8 — a `lon` / SOLVED miss there means a stale read-modify-write, rerun once before blaming the stamp.
+
+## The second live pass (after a 3-min pause)
+`verify-prod-globe` clean (0 failed requests); `verify-facades-live` 12/13 AGAIN — leg 9's FPV-boot half shows "COULD NOT LOAD — HTTP 429 · RETRY" on the MINE read (the orbit half + every API leg green, twice in a row, no CDN 429 this time) → the leading hypothesis is the data API's quota under the FPV boot's own world reads + the verifier's tempo (UNVERIFIED — the 429's headers / body were not captured; `/api/*` also sits behind Cloudflare) → **T198** (the harness: RETRY / a pause; the product: the quota question; a member in FPV can meet the same state). Not a UI regression: the deployed panel opened the row in orbit with ALIGN TO THE BUILDINGS · 4 PAIRS.
 
 ## Open for the owner
 The live read of the pairs flow + the /m EXIT VIEW · T197 (the loupe · real-photo accuracy · lever 3 · the slope settle) · the ADR's §3.2–3.6.

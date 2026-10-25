@@ -10,8 +10,10 @@ Grep → Read) → Wix MCP for platform APIs. **One writer per fact:** session n
 leaves and in `DECISIONS.md`; this root only indexes and states the current status (cap 12 KB — compact, never grow).
 
 ## Status — 2026-10-24c (`mem:project/wip-2026-10-24-f5-pairs-ui-exit-view`)
-**F5's PAIRS UI + SOLVED storage BUILT (T172's UI half) · the /m EXIT VIEW rides over the open map — gated (vitest 3,859 / 253 · astro 0/0/29),
-browser 13/13 on dev; the ship + the release follow (read DECISIONS after 2026-10-24c).** The FACADE PHOTO panel's ALIGN TO THE BUILDINGS: + PAIR →
+**F5's PAIRS UI + SOLVED storage BUILT (T172's UI half) · the /m EXIT VIEW rides over the open map — gated (vitest 3,862 / 253 · astro 0/0/29),
+browser 13/13 on dev → SHIPPED PR #158 `6c945f7` → RELEASED v1.36.45 (2026-10-24d): the SOLVED stamp proven live (leg 8b), the section seen on the
+deployed panel; the edge THROTTLES a busy IP after a release (HTTP 429 on chunks + API — pause, one curl, a CDP probe; never a loop); the live
+verifier's leg 9 FPV half meets a DATA-API 429 on the MINE read twice (T198 — the harness's tempo + the FPV boot's own reads; the orbit half green).** The FACADE PHOTO panel's ALIGN TO THE BUILDINGS: + PAIR →
 the photo full-screen → a click → the same point on a building (orbit or FPV; `castFacadePoint`, `tryFacadePairClick` first on both tap paths) →
 SOLVE from 4 pairs (6 releases the lens) = ONE journaled "solve"; the record `alignment = { pairs ≤ 24, origin (the apex at the FIRST pick, fixed),
 solved? }` (`lib/geo/facadeAlign.ts`) rides SAVE / UPDATE; the SERVER stamps `poseSource: "SOLVED"` while the pose equals `solved.pose`
@@ -39,8 +41,8 @@ lever 3 · the slope settle). NEXT: the owner's live read → the ADR's §3.2–
 ## Standing facts (2026-10-24)
 - Gates: vitest **~3,805 / 252 files** · `astro check` **0/0/29** (the hints are the dated baseline). Three timing tests flake under load
   (`bestSpotSolver`, `bestSpotResidency`, `planFeed`) — re-run before believing; a session-end ship can abort on them (read the ship log's tail at boot).
-- `package.json` **1.36.43** (each ship bumps the patch); live **v1.36.43** (2026-10-24b, ship `d4c2b52` PR #156 — T195 + T193 / T194 + the guide
-  chapter; before it v1.36.42, 2026-10-23b, PR #155). Release:
+- `package.json` **1.36.45** (each ship bumps the patch); live **v1.36.45** (2026-10-24d, ship `6c945f7` PR #158 — F5's pairs UI + the SOLVED stamp +
+  the /m EXIT VIEW; before it v1.36.43, 2026-10-24b, PR #156). `verify-facades-live.mjs` is 13 legs (8b = the SOLVED stamp). Release:
   `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (≤ 250 BYTES; `--skip-gates` only right after a ship's gates on the identical tree);
   `release.sh` uses the PINNED CLI (`node_modules/.bin/wix`). **`wix dev` on Node 24.10** (`~/.nvm/versions/node/v24.10.0/bin`), the CDP harnesses too.
   **`wix dev` cannot elevate (T173)** — persistence is proven only live (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
