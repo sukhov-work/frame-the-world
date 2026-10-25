@@ -16,7 +16,9 @@ surfaces") built the same day → SHIPPED + RELEASED on the owner's order (DECIS
 quads at the chart's radius rule (2.94 line · 1.47 rim · 3.67 legs on 874 px), the painter's optional `strokeCssPx { line, rim }`, `MiniMap` AND
 `MapWindow` hand it on /m (the mini-map ends its radar strokes SQUARE); desktop byte-identical; (2) the peek row's
 ALMANAC — ☀ ☾ rise / set permanently beside the object's own pair (dropped when it IS one), U+FE0E text glyphs, the bearings stacked, the row
-38.59 vs 38.56 px. NEXT: the owner's live read of 2026-10-24c + the interlude on the real iPhone → the ADR's §3.2–3.6 → T198 · T197 · T196.
+38.59 vs 38.56 px; the DAY's rise / set with +1 (10-25c) → RELEASED v1.36.48. **RECORDED 2026-10-25e: T200 the moon's perceived visibility** (the
+owner's next-session ask — the realistic brightness / colour / contrast against the current sky, Rayleigh + airmass; read the row's READ-FIRST
+list; the pure model + a verdict first, the phone budget the hard line). NEXT: the owner's live read → T200 → the ADR's §3.2–3.6 → T198 · T197 · T196.
 
 ## Status — 2026-10-24c (the F5 era)
 **F5's PAIRS UI + SOLVED storage BUILT (T172's UI half) · the /m EXIT VIEW rides over the open map — gated (vitest 3,862 / 253 · astro 0/0/29),
@@ -72,7 +74,7 @@ lever 3 · the slope settle). NEXT: the owner's live read → the ADR's §3.2–
   Chrome / a dev server / the full vitest; browser suites queue on the one Chrome; close it after the last suite; never touch the owner's :9222.
   **T98: the VPN is a precondition for every terrain gate** (ion 401 = ok, 403 = blocked).
 - `wix dev`: move `node_modules/.vite` aside on a restart (T14), expect to restart TWICE; never edit a served `src/` module while a harness runs.
-- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T199**, every row dated).
+- The debt registry: `.claude/skills/frame/references/tracked-backlog.md` (**T1–T200**, every row dated).
 - **Never write a per-draw uniform from `mesh.onBeforeRender`** (T165). Scene modules never read stores (`fences.test.ts`).
 - PARKED by owner order: Phase 7 AI · BEST SPOT's algorithm (T59) · the registry's parked rows (T1 T29 T31 T42 T46 T47 T50–T52 T56 T57 T113) ·
   the public-exposure class (T138/T139) until public launch — the textures carve-out (T190) excepted.

@@ -50,6 +50,13 @@ the clock + `<span class="m-peek__alm-d">+1</span>` (0.42rem, `line-height: 0`, 
 05:41 / 19:43 · moon 15:53 / 23:16 · the comet 21:46 / 04:02 — all today's; 2026-09-06 (no moonrise that clock day): "00:48+1" on the
 rise, the set 16:55 (shot `07-iphone-peek-plus1.png`). Tests `test/lib/ephemeris/dayRiseSet.test.ts` (+11) + the almanac test (+1).
 
+## 4. RECORDED for the next session — T200 the moon's perceived visibility (owner 2026-10-25e)
+The verbatim ask sits in the backlog row; the gist: realistic brightness / colour / contrast / other curves for the moon against the CURRENT sky
+(the sun above the horizon or not, twilight state), with Rayleigh scattering and atmospheric thickness — "is it optically worth it" for a dusk or
+early-morning shot. Hard lines: re-read every prior moon ruling first (T131 · T133 · T47 parked · the eras 08-22 / 08-26 / 08-27 / 09-10 / 10-13);
+build the safest, most efficient rungs first (a pure `lib/sky/moonVisibility.ts` + a verdict → existing uniforms → shader last), measured on the
+phone twins between rungs; never degrade mobile; desktop / ULTRA may go richer. Nothing built.
+
 ## Traps learned
 - zustand v5 serves `getInitialState()` as the SERVER snapshot — a `renderToStaticMarkup` test mirrors the live stores onto it first.
 - The house Chrome profile keeps the LAST TRACKED BODY across harness runs (prefs) — set the target explicitly.
