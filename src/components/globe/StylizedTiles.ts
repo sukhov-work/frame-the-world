@@ -5163,6 +5163,8 @@ export function attachStylizedTiles(opts: {
       },
       facades: () => ({
         markers: facadeMarkers?.count() ?? null,
+        markersVisible: facadeMarkers?.mesh.visible ?? null, // T201 — the TEX gate's rendered truth
+
         hovered: facadeMarkers?.hovered() ?? null,
         markerScaleOf: (id: string) => facadeMarkers?.scaleOf(id) ?? null,
         menu: useFacadesStore.getState().menu,
@@ -9060,6 +9062,11 @@ export function attachStylizedTiles(opts: {
   };
   const stepFacadeResidency = () => {
         if (!facadeMarkers || !photoProjector) return;
+        // T201 (owner 2026-10-26): the TEX chip (desktop) / the LAYERS modal's TEXTURES (/m) — the one
+        // persisted `texturesVisible` pref — gates the camera-icon MARKERS too, mirrored per frame
+        // like the PIN chip and MY PLACES (`stepPinsUpdate`): off → no icons on the map or in FPV,
+        // and `pick()` answers null, so the hover card and the EDIT / REMOVE menu cannot open.
+        facadeMarkers.setVisible(useCameraStore.getState().texturesVisible);
         facadeMarkers.update(camera); // the glyphs' angular-size recompose (cheap: only when the camera moved > 1 m)
         // F6: on the /m 2D map the buildings are detached — nothing to paint; the residents release
         // (no depth pass runs against nothing) and the markers alone stay on the map.
@@ -9084,8 +9091,8 @@ export function attachStylizedTiles(opts: {
         }
         if (frameCount % MODELS.residencyEveryFrames !== 0) return;
         // T182 (owner 2026-10-22): the TEX chip in the camera controls gates the SAVED photos'
-        // slots (the draft always projects while placed; the markers stay). Off → every resident
-        // slot is released this tick and no plan runs.
+        // slots (the draft always projects while placed). Off → every resident slot is released
+        // this tick and no plan runs — and since T201 (2026-10-26) the markers go with them (above).
         if (!useCameraStore.getState().texturesVisible) {
           if (facadeSlotsNow.length) {
             for (const id of facadeSlotsNow) photoProjector.release(id);

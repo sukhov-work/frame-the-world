@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import * as THREE from "three";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { attachFacadeMarkers, FACADE_MARKER_CAP } from "../../../src/components/globe/scene/facadeMarkers";
@@ -260,6 +262,19 @@ describe("facadeMarkers — update / pick", () => {
     expect(c.getHex()).not.toBe(accent.getHex());
     expect(c.r + c.g + c.b).toBeGreaterThan(accent.r + accent.g + accent.b);
     h.dispose();
+  });
+
+  it("T201 (owner 2026-10-26): the orchestrator mirrors the TEX pref into setVisible every frame, before update()", () => {
+    // The TEX chip / the /m LAYERS modal share `texturesVisible`; the camera-icon markers must go with
+    // the projected textures — the PIN chip / MY PLACES idiom (`stepPinsUpdate`). A source pin: the
+    // flag flows through the handle right before the per-frame `update(camera)`, so a flip applies on
+    // the next frame without the camera moving.
+    const src = readFileSync(join(__dirname, "../../../src/components/globe/StylizedTiles.ts"), "utf8");
+    const i = src.indexOf("facadeMarkers.setVisible(useCameraStore.getState().texturesVisible);");
+    const j = src.indexOf("facadeMarkers.update(camera);");
+    expect(i).toBeGreaterThan(0);
+    expect(j).toBeGreaterThan(i);
+    expect(j - i).toBeLessThan(200);
   });
 
   it("no rows / hidden → the mesh is invisible and nothing is picked", () => {
