@@ -7,7 +7,7 @@ import {
 } from "../../../lib/ephemeris/eclipse";
 import { ATMOSPHERE, ECLIPSE, SKY, WGS84_A, WGS84_B } from "../tuning";
 import { bandCurve } from "../../../lib/globe/lightBands";
-import { solarChroma } from "../../../lib/globe/duskLight";
+import { airMass, SOLAR_TAU, solarChroma } from "../../../lib/globe/duskLight";
 import { DITHER_GLSL, glf, impostorEdgeWindowGlsl } from "./glsl";
 
 /**
@@ -137,11 +137,98 @@ export function moonDiscArms(
   albedo: number,
   daySky: number,
   fade: number,
+  air = 1,
 ): { rgb: number; alpha: number } {
-  const nightRgb = albedo * (SKY.moonEarthshine + lit * SKY.moonBrightness);
-  const dayRgb = albedo * lit * SKY.moonBrightness * SKY.moonDayAddGain;
+  // T200: the air (level × one tint channel) multiplies the ALBEDO — both arms, never the alpha
+  // (opacity is not brightness: a dimmed night disc still occludes the stars).
+  const a = albedo * air;
+  const nightRgb = a * (SKY.moonEarthshine + lit * SKY.moonBrightness);
+  const dayRgb = a * lit * SKY.moonBrightness * SKY.moonDayAddGain;
   const aNight = fade * (1 - daySky);
   return { rgb: nightRgb * aNight + dayRgb * daySky * fade, alpha: aNight };
+}
+
+const srgbToLinear = (c: number): number =>
+  c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+/** Linear luminance of a `#rrggbb` token (Rec.709 weights) — the skyBudget test's own recipe. */
+function tokenLuminance(hex: string): number {
+  const v = hex.replace("#", "");
+  const ch = [0, 2, 4].map((i) => srgbToLinear(parseInt(v.slice(i, i + 2), 16) / 255));
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+/** The dome's full-day zenith luminance (linear): the sky the dark limb is compared against. */
+const SKY_DAY_LUM = tokenLuminance(tokens.skyDay) * ATMOSPHERE.skyDayGain;
+
+/**
+ * T200 (owner 2026-10-25e) — THE MOON THROUGH THE AIR, the CPU twin of the two uniforms
+ * `uMoonAir` / `uMoonTint`. The moon's own altitude (deg, from `_dir · up` — zero ephemeris cost)
+ * drives a smoothstep over [0, `SKY.moonAirHiDeg`]: at/above the band the disc is EXACTLY the
+ * shipped one (level 1, tint white — a 21° night moon is byte-identical); toward the horizon the
+ * level falls to `moonAirFloor` (the sun's `sunExtinctionK` shape — dimmed, never erased) and the
+ * tint is pulled by `moonChromaK` toward `solarChroma` (Kasten–Young airmass × the sun's
+ * per-channel optical depth — real physics, the same function the dusk key light reads) floored
+ * per channel so the horizon moon is deep orange, not crimson. `skyK` (1 at street level, 0 in
+ * space) relaxes both to the shipped values: from orbit there is no air in the way.
+ */
+export interface MoonAirTerms {
+  level: number;
+  tint: [number, number, number];
+}
+/** Allocation-free per frame: `update()` hands in this scratch; a caller that omits `out` gets a fresh object. */
+const _airScratch: MoonAirTerms = { level: 1, tint: [1, 1, 1] };
+export function moonAirTerms(moonAltDeg: number, skyK: number, out?: MoonAirTerms): MoonAirTerms {
+  const r = out ?? { level: 1, tint: [1, 1, 1] };
+  const sky = THREE.MathUtils.clamp(skyK, 0, 1);
+  const t = THREE.MathUtils.smoothstep(moonAltDeg, 0, SKY.moonAirHiDeg); // 1 at/above the band
+  const w = (1 - t) * sky; // how much air: 0 above the band / in space
+  r.level = 1 - w * (1 - SKY.moonAirFloor);
+  // The chroma is at full strength from `moonChromaBandFrac` of the band downward and blends to
+  // white across the band's upper part (the physical chroma is strong already at 12°).
+  const tc = THREE.MathUtils.smoothstep(moonAltDeg, SKY.moonAirHiDeg * SKY.moonChromaBandFrac, SKY.moonAirHiDeg);
+  const wc = (1 - tc) * sky;
+  if (wc <= 0) {
+    r.tint[0] = r.tint[1] = r.tint[2] = 1;
+    return r;
+  }
+  // `solarChroma`, inlined so the frame allocates nothing: per-channel transmittance through
+  // Kasten–Young airmass at the sun's optical depths, normalised to its peak channel.
+  const m = airMass(Math.max(moonAltDeg, -1.5));
+  const tr = Math.exp(-SOLAR_TAU[0] * (m - 1));
+  const tg = Math.exp(-SOLAR_TAU[1] * (m - 1));
+  const tb = Math.exp(-SOLAR_TAU[2] * (m - 1));
+  const peak = Math.max(tr, tg, tb, 1e-6);
+  const f = SKY.moonChromaFloor;
+  const k = SKY.moonChromaK * wc;
+  r.tint[0] = 1 + (Math.max(tr / peak, f[0]) - 1) * k;
+  r.tint[1] = 1 + (Math.max(tg / peak, f[1]) - 1) * k;
+  r.tint[2] = 1 + (Math.max(tb / peak, f[2]) - 1) * k;
+  return r;
+}
+
+/**
+ * T200 — THE DARK LIMB AGAINST THE CURRENT SKY. The night arm's share of the disc (the opaque,
+ * star-occluding, earthshine-lit one): (E / (E + sky))² where E is the dark limb's own light
+ * (`moonMeanAlbedo × moonEarthshine`) and `sky` the dome's zenith luminance behind it. Through
+ * twilight the dark limb then reads as max(sky, earthshine) — within ~30 % at the crossover —
+ * instead of lerping toward a dark hole on a lit sky (measured 16/255 under the sky at sun +1°,
+ * the 2026-08-14 dark-crescent class of defect alive inside the ±7° ramp). Raw shares at or
+ * below `moonNightShareCut` clamp to EXACTLY 0 so the day arm stays additive-only to the bit.
+ */
+export function moonNightShare(skyLum: number, earthshineLum = SKY.moonMeanAlbedo * SKY.moonEarthshine): number {
+  const raw = (earthshineLum / (earthshineLum + Math.max(skyLum, 0))) ** 2;
+  const cut = SKY.moonNightShareCut;
+  return raw <= cut ? 0 : (raw - cut) / (1 - cut);
+}
+
+/**
+ * `uDaySky` — the day-arm weight. `dayK` is the atmosphere's own sun-elevation ramp, `skyK` its
+ * altitude presence, `eclipseK` the solar eclipse's daylight loss (2026-08-22k). The eclipse factor
+ * multiplies OUTSIDE the share so a total eclipse still turns the disc opaque at exactly the rate
+ * the sky goes dark (the corona is drawn before the moon and must be replaced, not shone through).
+ * By day the share is exactly 0 → uDaySky = eclipseK (1 with no eclipse); at night dayK = 0 → 0.
+ */
+export function moonDaySkyK(dayK: number, skyK: number, eclipseK: number): number {
+  return (1 - moonNightShare(SKY_DAY_LUM * dayK * skyK)) * eclipseK;
 }
 
 /**
@@ -395,6 +482,10 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     uPenumbraR: { value: 1 },
     uUmbraOn: { value: 0 }, // 0 skips the whole branch on every ordinary night
     uUmbraTint: { value: new THREE.Color(tokens.eclipseUmbra) },
+    // T200: the moon through the air — level + tint by the moon's OWN altitude (CPU per frame,
+    // `moonAirTerms`; exactly 1 / white at or above SKY.moonAirHiDeg and from orbit).
+    uMoonAir: { value: 1 },
+    uMoonTint: { value: new THREE.Color(1, 1, 1) },
     uHorizonUp,
     uSinHor,
     uHorizonBandSin,
@@ -403,7 +494,9 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
     uniforms: moonUniforms,
     // Transparent so the horizon fade can dissolve the disc; depthTest ON (terrain/buildings
     // occlude a setting moon); depthWrite OFF (round 3, owner 2026-08-14) — the disc must never
-    // place a depth wall in the sky: the additive dome draws after it, and ANY depth the disc
+    // place a depth wall in the sky: the additive dome (renderOrder 0 — it draws BEFORE this disc
+    // at 12 since 2026-08-15, which is why the night arm's alpha REPLACES the sky behind the dark
+    // limb; T200 2026-10-25f) is depth-tested against the disc's footprint, and ANY depth the disc
     // writes can depth-reject the dome on the disc's footprint during rapid FPV look-drags
     // (browser A/B over ~470 drag frames each: depthWrite on → dark frames at 0.13× sky
     // luminance; off → zero). Star occlusion needs no depth — the night arm's alpha (≈1 at
@@ -454,6 +547,8 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       uniform float uPenumbraR;
       uniform float uUmbraOn;
       uniform vec3 uUmbraTint;
+      uniform float uMoonAir;
+      uniform vec3 uMoonTint;
       varying vec2 vUv;
       varying vec3 vNw;
       varying vec3 vW;
@@ -484,6 +579,11 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
           float umbK = ${glf(ECLIPSE.umbraLight)} * (1.0 + ${glf(ECLIPSE.umbraEdgeLift)} * edge * edge);
           albedo *= mix(pen, umbK, inUmb) * mix(vec3(1.0), uUmbraTint, inUmb);
         }
+        // T200: the air the moonlight crosses — extinction (level) and reddening (tint) by the
+        // moon's own altitude, on the ALBEDO so both arms dim and warm together while the night
+        // arm's opacity stays (a dim low moon still occludes the stars). After the umbra, so an
+        // eclipsed low moon is copper AND orange. 1.0 / white above the band (CPU: moonAirTerms).
+        albedo *= uMoonTint * uMoonAir;
         // Two premultiplied arms mixed by uDaySky (CPU twin: moonDiscArms — keep in lockstep).
         // NIGHT: the classic opaque star-occluding disc. DAY: additive-only reflected sunlight —
         // the dark side IS the sky, and no mid-lit pixel can ever be darker than the sky behind
@@ -669,6 +769,15 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       moonMesh.quaternion.setFromRotationMatrix(_m);
       moonUniforms.uSunDir.value.copy(sunDir);
 
+      // T200: the moon through the air — its OWN altitude from the topocentric direction against
+      // the shared up (the sine the sun's extinction reads, zero ephemeris cost), then the level
+      // and the tint (CPU twin: moonAirTerms). Two uniform writes, no new pass, no new texture.
+      const moonAltDeg =
+        Math.asin(THREE.MathUtils.clamp(_dir.dot(uHorizonUp.value), -1, 1)) * (180 / Math.PI);
+      const air = moonAirTerms(moonAltDeg, skyK, _airScratch);
+      moonUniforms.uMoonAir.value = air.level;
+      moonUniforms.uMoonTint.value.setRGB(air.tint[0], air.tint[1], air.tint[2]);
+
       // --- SOLAR ECLIPSE. `solar` was derived by the orchestrator from these very vectors, so all
       // that happens here is projecting the moon onto the sun's billboard plane. The plane is
       // billboarded to the camera, so its local axes ARE camera right/up — the offset is two dot
@@ -694,11 +803,21 @@ export function attachSky(scene: THREE.Scene): SkyHandle {
       // the "proper dark disc" the owner asked for, and it does it honestly: the disc goes opaque
       // at exactly the rate the sky behind it goes dark, because both read the same number. No
       // second alpha arm, so the tested CPU twin (moonDiscArms) needs no new parameter.
+      //
+      // T200 (2026-10-25f): the arm WEIGHT is no longer dayK itself but the dark limb's share of
+      // the sky it sits on (`moonDaySkyK` → `moonNightShare`): opaque only once the dome behind it
+      // is darker than its own earthshine, so the dark limb reads as max(sky, earthshine) through
+      // the whole ramp instead of a 16/255 hole at sun +1° (measured on the twins). The eclipse
+      // factor still multiplies the whole weight OUTSIDE the share: by full day the share is
+      // exactly 0, so a daytime eclipse's dark disc is identical to before; below dayK·skyK ≈ 0.85
+      // (sun under ~3.6°) the eclipsed disc is a little LESS opaque than before (dayK 0.3 at
+      // totality: alpha 0.988 → 0.962) — never a hole, never brighter (Fable review 2026-10-25f).
       const dayK = THREE.MathUtils.smoothstep(sinSun, ATMOSPHERE.skyDawnLo, ATMOSPHERE.skyDawnHi);
-      moonUniforms.uDaySky.value =
-        dayK *
-        skyK *
-        eclipseDaylightK(solar.coverage, ECLIPSE.daylightGamma, ECLIPSE.daylightFloor);
+      moonUniforms.uDaySky.value = moonDaySkyK(
+        dayK,
+        skyK,
+        eclipseDaylightK(solar.coverage, ECLIPSE.daylightGamma, ECLIPSE.daylightFloor),
+      );
 
       // --- LUNAR ECLIPSE. The umbra is a geocentric object, so its offset arrives already
       // computed; all that is left is projecting it into the disc's own (y, z) basis and handing

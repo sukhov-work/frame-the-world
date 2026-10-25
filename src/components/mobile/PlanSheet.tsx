@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePlanStore, type PlanBodyState } from "../../store/plan";
-import { useTimeStore } from "../../store/time";
+import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { useCameraStore } from "../../store/camera";
 import { useSkyStore } from "../../store/sky";
 import { cardinal, formatSigned } from "../../lib/format/readout";
@@ -27,6 +27,7 @@ import {
   type PlanEventKind,
 } from "../../lib/ephemeris/planner";
 import { lightPhaseAt, sunAltDeg } from "../../lib/ephemeris/twilight";
+import { moonVisibilityAt, type MoonVisibility } from "../../lib/ephemeris/moonVisibility";
 import {
   frameCrossings,
   nearestFrameCentre,
@@ -229,6 +230,20 @@ function FrameSection() {
   );
 }
 
+/** T200 (owner 2026-10-25e) — the TodayCard twin's moon-shot verdict: sampled 40 min after a moonrise /
+ *  before a moonset (the moon ~6–8° up), never AT the event. /m has no hover: the sentence is the aria-label. */
+const MOON_SHOT_OFFSET_MS = 40 * 60_000;
+function moonShotVerdict(
+  kind: "moonrise" | "moonset",
+  eventMs: number,
+  latDeg: number,
+  lonDeg: number,
+): { vis: MoonVisibility; say: string } {
+  const rise = kind === "moonrise";
+  const vis = moonVisibilityAt(eventMs + (rise ? MOON_SHOT_OFFSET_MS : -MOON_SHOT_OFFSET_MS), latDeg, lonDeg);
+  return { vis, say: `Moon 40 min ${rise ? "after moonrise" : "before moonset"}: ${vis.reason.replace(/ — /g, ", ")}` };
+}
+
 /** TODAY — the TodayCard twin (self-computing chronology with light dots + the R5 sun-at-moon
  *  quality signal; supersedes the M1 raw "JUMP SCENE TIME" chips). */
 function TodaySection({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
@@ -250,6 +265,8 @@ function TodaySection({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
       light: lightPhaseAt(e.utcMs, lat, lon),
       sunAtMoon:
         e.kind === "moonrise" || e.kind === "moonset" ? sunAltDeg(e.utcMs, lat, lon) : null,
+      moonShot:
+        e.kind === "moonrise" || e.kind === "moonset" ? moonShotVerdict(e.kind, e.utcMs, lat, lon) : null,
     }));
   }, [dayKey, latKey, lonKey]);
 
@@ -257,7 +274,7 @@ function TodaySection({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
     <>
       <div className="m-section">TODAY · MIDNIGHT → MIDNIGHT</div>
       <div className="m-rows">
-        {rows.map(({ e, light, sunAtMoon }: { e: PlanEvent; light: string; sunAtMoon: number | null }) => (
+        {rows.map(({ e, light, sunAtMoon, moonShot }: { e: PlanEvent; light: string; sunAtMoon: number | null; moonShot: { vis: MoonVisibility; say: string } | null }) => (
           <div className="m-row" key={`${e.kind}:${e.utcMs}`}>
             <button type="button" className="m-row__jump" onClick={() => setTime(e.utcMs)}>
               <i className={`m-dot m-dot--${light}`} />
@@ -267,6 +284,11 @@ function TodaySection({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
               <span className="m-row__kind">{CHIP_LABEL[e.kind]}</span>
               {sunAtMoon != null && (
                 <span className="m-row__meta">☀{formatSigned(Math.round(sunAtMoon))}</span>
+              )}
+              {moonShot != null && (
+                <span className="m-row__meta" aria-label={moonShot.say}>
+                  {`☾ ${moonShot.vis.label}`}
+                </span>
               )}
             </button>
           </div>
@@ -458,9 +480,31 @@ function MoonSection({ latDeg, lonDeg }: { latDeg: number; lonDeg: number }) {
     return { rows, superChip };
   }, [dayKey, latKey, lonKey]);
 
+  // T200 (owner 2026-10-25e): the MoonCalCard twin's NOW line — keyed to the scene MINUTE (1 s tick
+  // while live / playing; the state only moves on a new minute) and the 0.05° observer.
+  const playRate = useTimeStore((s) => s.playRate);
+  const [minuteKey, setMinuteKey] = useState(() => Math.floor(sceneTimeMs() / 60_000));
+  useEffect(() => {
+    if (!live && playRate === null) {
+      setMinuteKey(Math.floor(pinnedMs / 60_000));
+      return;
+    }
+    const tick = () => setMinuteKey(Math.floor(sceneTimeMs() / 60_000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [live, pinnedMs, playRate]);
+  const moonNow = useMemo(
+    () => moonVisibilityAt(minuteKey * 60_000, latKey / 20, lonKey / 20),
+    [minuteKey, latKey, lonKey],
+  );
+
   return (
     <>
       <div className="m-section">MOON · PHASES & DISTANCES</div>
+      <div className="m-status-line" aria-label={`Moon now: ${moonNow.label.toLowerCase()}, ${moonNow.reason.replace(/ — /g, ", ")}`}>
+        {`☾ NOW · ${moonNow.label} · ${moonNow.reason.split(" — ")[0].toUpperCase()}`}
+      </div>
       <div className="m-rows">
         {rows.map(({ e, light }) => (
           <div className="m-row" key={`${e.kind}:${e.utcMs}`}>

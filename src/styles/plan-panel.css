@@ -312,6 +312,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* T200 (2026-10-25e): the moon-shot verdict rides beside the ☀±N meta — only the first takes the
+   auto margin (the /m twin is chrome.css .m-row__meta + .m-row__meta). */
+.pp-day__meta + .pp-day__meta {
+  margin-left: 6px;
+}
+/* T200: the MOON section's NOW verdict line stays one line in the 12.5rem card (the title carries the rest). */
+.pp-status--moon {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .pp-ics {
   flex: none;
   padding: 1px 5px;

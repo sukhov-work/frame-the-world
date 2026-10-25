@@ -223,6 +223,53 @@ export const SKY = {
    *  (0.35 → 0.5 2026-07-13 illumination pass — richer stylized full-moon night; albedo-scaled so
    *  black stays black; watch vs BLOOM.threshold.) */
   moonSceneGlow: 0.5,
+
+  // --- T200 (owner 2026-10-25e/f): THE MOON THROUGH THE AIR — the disc's extinction + reddening by
+  //     the moon's OWN altitude, and the dark limb against the CURRENT sky. Measured before the
+  //     change on the phone twins (`scripts/verify-t200-moon.mjs --baseline`): the full moon 8.4°
+  //     up at civil dusk rendered WHITE (disc rgb 184,183,177 · b/g 0.967) and the setting full
+  //     moon at 4.5° the same — the real one is orange and 1.5–2.5 mag dimmer; the gibbous moon
+  //     at sun +1.0° painted its dark limb 16/255 DARKER than the sky behind it (the night arm's
+  //     opacity in the ±7° ramp). The daytime moon (sun +24°, contrast 0.09–0.26) already read as
+  //     physics says — untouched. ---
+  /** The altitude (deg) where the moon's atmospheric band begins: at/above it the disc is EXACTLY
+   *  the shipped one (level 1, tint white) so a 21° night moon is byte-identical; below it the
+   *  level and the tint ride a smoothstep to the horizon. Widen to let a 20° moon warm up. */
+  moonAirHiDeg: 12,
+  /** The disc's LEVEL at the horizon (× albedo, both arms) — the `sunExtinctFloor` discipline:
+   *  dimmed like the air does, never erased (the real loss at 0° is ~9 mag; a frame holds it
+   *  only because the eye opens up). Relaxes to 1 from orbit with `skyK`. The LUMINANCE floor is
+   *  lower — this × the floored tint: red 0.45 · green 0.189 · blue 0.072 → ~0.24 of the shipped
+   *  disc (≈ 1.6 mag), because extinction reddens as it dims. */
+  moonAirFloor: 0.45,
+  /** How far the disc is pulled toward the PHYSICAL extinction chromaticity (`solarChroma`,
+   *  Kasten–Young airmass × the sun's per-channel optical depth) inside the band — the sun's
+   *  `discChromaK` precedent. The weight rides the same smoothstep as the level, so above
+   *  `moonAirHiDeg` the tint is exactly white. */
+  moonChromaK: 1,
+  /** The chroma reaches full strength from THIS fraction of the band downward (8° at 0.67 × 12°)
+   *  and blends to white across the band's top third: the physical chroma is already (1, 0.86,
+   *  0.60) at 12°, so a blend over the whole band left an 8° moon nearly white (b 0.90 in the twin
+   *  test; on glass the 8.4° dusk moon read rgb 149,145,133 at half strength — a grey, not the
+   *  owner's orange). At full strength the 8° moon is (1, 0.78, 0.44) linear ≈ the warm yellow-
+   *  orange a real dusk moonrise shows. The LEVEL keeps the whole-band smoothstep. */
+  moonChromaBandFrac: 0.67,
+  /** Per-channel floor under that chroma: the horizon moon stays deep ORANGE (the measured
+   *  low-moon colour) rather than the crimson `solarChroma` reaches at 0° (1.000, 0.212, 0.005). */
+  moonChromaFloor: [1, 0.42, 0.16] as const,
+  /** The LROC map's mean luminance — with `moonEarthshine` it is the dark limb's own light
+   *  (0.3 × 0.12 = 0.036 linear), the number the dark limb is compared against the sky with. */
+  moonMeanAlbedo: 0.3,
+  /** THE DARK LIMB vs THE SKY. The night arm's share is (earthshine / (earthshine + sky))²,
+   *  where sky = the dome's zenith luminance (`tokens.skyDay` × `ATMOSPHERE.skyDayGain` ×
+   *  dayK × skyK): the dark limb is opaque only once the sky behind it is darker than its own
+   *  earthshine, and reads as max(sky, earthshine) through twilight instead of a dark hole. Raw
+   *  shares at or below THIS are clamped to EXACTLY 0 (the day arm stays additive-only to the bit —
+   *  owner 2026-08-14); by day the raw share is 0.0075. */
+  moonNightShareCut: 0.01,
+  // (A design import that darkens `tokens.skyDay` under a linear luminance of 0.381 — 85 % of
+  //  today's skyDay token — would lift the raw daytime share over the cut and cost the day arm its
+  //  bit-exact alpha 0; `test/components/globe/moonAir.test.ts` reads the live token and fails.)
 } as const;
 
 /** Generic sky-target tracer (ASTRO ENGINE phase C split, 2026-08-03 — was baked into COMET):

@@ -22,6 +22,7 @@ import { useCameraStore } from "../../store/camera";
 import { sceneTimeMs, useTimeStore } from "../../store/time";
 import { targetAzAlt } from "../../lib/ephemeris/targets";
 import { targetWindows, type TargetWindow } from "../../lib/ephemeris/planner";
+import { moonVisibilityAt, type MoonVerdict } from "../../lib/ephemeris/moonVisibility";
 import {
   lunarEclipseAt,
   nextLunarEclipses,
@@ -155,6 +156,17 @@ function EclipseRowView({
   );
 }
 
+/** T200: the moon verdict's badge tone — the HORIZON / SKYLINE badges' own two inks, plain for PALE. */
+const MOON_VIS_BADGE: Record<MoonVerdict, string> = {
+  bright: " m-badge--clear",
+  clear: " m-badge--clear",
+  pale: "",
+  faint: " m-badge--blocked",
+  lost: " m-badge--blocked",
+  sunward: " m-badge--blocked",
+  below: " m-badge--blocked",
+};
+
 export default function TargetSheet({ onClose }: { onClose: () => void }) {
   const target = useSkyStore((s) => s.target);
   const stopFollowing = useSkyStore((s) => s.stopFollowing);
@@ -210,6 +222,15 @@ export default function TargetSheet({ onClose }: { onClose: () => void }) {
   const now = useMemo(
     () => targetAzAlt(target, minuteKey * 60_000, latDeg, lonDeg),
     [minuteKey, latDeg, lonDeg, target],
+  );
+  // T200 (owner 2026-10-25e): the tracked MOON's perceived visibility at scene time — the TargetPanel
+  // twin, gated on `target.kind`, on the same minute memo.
+  const trackedMoon = target.kind === "moon";
+  const visLatKey = Math.round(latDeg * 20); // the 0.05° observer
+  const visLonKey = Math.round(lonDeg * 20);
+  const moonVis = useMemo(
+    () => (trackedMoon ? moonVisibilityAt(minuteKey * 60_000, visLatKey / 20, visLonKey / 20) : null),
+    [trackedMoon, minuteKey, visLatKey, visLonKey],
   );
 
   const hourKey = Math.floor(nowMs / 3_600_000);
@@ -274,6 +295,14 @@ export default function TargetSheet({ onClose }: { onClose: () => void }) {
         {upNow && planTarget?.id === target.id && (
           <span className={`m-badge ${planTarget.blockedNow ? "m-badge--blocked" : "m-badge--clear"}`}>
             {planTarget.blockedNow ? "BEHIND SKYLINE" : "SKYLINE CLEAR"}
+          </span>
+        )}
+        {moonVis && moonVis.verdict !== "below" && (
+          <span
+            className={`m-badge${MOON_VIS_BADGE[moonVis.verdict]}`}
+            aria-label={`${moonVis.label.toLowerCase()}: ${moonVis.reason.replace(/ — /g, ", ")}`}
+          >
+            {moonVis.label}
           </span>
         )}
       </div>

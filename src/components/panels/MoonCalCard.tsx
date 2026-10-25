@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useTimeStore } from "../../store/time";
+import { useEffect, useMemo, useState } from "react";
+import { sceneTimeMs, useTimeStore } from "../../store/time";
 import {
   moonCalendar,
   nextSupermoons,
@@ -7,6 +7,7 @@ import {
   type MoonCalKind,
 } from "../../lib/ephemeris/moonCalendar";
 import { lightPhaseAt } from "../../lib/ephemeris/twilight";
+import { moonVisibilityAt } from "../../lib/ephemeris/moonVisibility";
 import { downloadIcs } from "../../lib/export/ics";
 
 /**
@@ -74,9 +75,32 @@ export default function MoonCalCard({ latDeg, lonDeg }: { latDeg: number; lonDeg
     return { rows, superChip };
   }, [dayKey, latKey, lonKey]);
 
+  // T200 (owner 2026-10-25e): the moon's perceived visibility NOW — keyed to the scene MINUTE
+  // (the TargetPanel tick: a 1 s interval while live / playing, the state only moves on a new
+  // minute) and the 0.05° observer, so the three ephemeris reads never ride a render tick.
+  const playRate = useTimeStore((s) => s.playRate);
+  const [minuteKey, setMinuteKey] = useState(() => Math.floor(sceneTimeMs() / 60_000));
+  useEffect(() => {
+    if (!live && playRate === null) {
+      setMinuteKey(Math.floor(pinnedMs / 60_000));
+      return;
+    }
+    const tick = () => setMinuteKey(Math.floor(sceneTimeMs() / 60_000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [live, pinnedMs, playRate]);
+  const moonNow = useMemo(
+    () => moonVisibilityAt(minuteKey * 60_000, latKey / 20, lonKey / 20),
+    [minuteKey, latKey, lonKey],
+  );
+
   return (
     <>
       <div className="pp-section">MOON · PHASES & DISTANCES</div>
+      <div className="pp-status pp-status--moon" title={`Moon now — ${moonNow.reason}`}>
+        {`☾ NOW · ${moonNow.label} · ${moonNow.reason.split(" — ")[0].toUpperCase()}`}
+      </div>
       <div className="pp-day">
         {rows.map(({ e, light }) => (
           <div className="pp-day__row" key={`${e.kind}:${e.utcMs}`}>

@@ -29,6 +29,7 @@ import { localTimeStr, sceneTimeMs, useTimeStore } from "../../store/time";
 import { aimAtSkyBody } from "../../store/skyAim";
 import { bodyTarget, targetAzAlt, targetShortName, type SkyTarget } from "../../lib/ephemeris/targets";
 import { dayRiseSet, type DayEvent, type DayRiseSet } from "../../lib/ephemeris/riseSet";
+import { moonVisibilityAt } from "../../lib/ephemeris/moonVisibility";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { cardinal, EM_DASH } from "../../lib/format/readout";
 import { ORCH } from "../globe/tuning";
@@ -127,6 +128,16 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
       : []),
   ];
   const almanacLabel = almanac.map((a) => `${a.name} rise ${say(a.rs.rise)}, set ${say(a.rs.set)}`).join("; ");
+  // T200 (owner 2026-10-25e): the moon's perceived visibility at scene time rides the ☾ cell as `data-vis`
+  // (no visible text, no new box — the row's 38.59 px and the name's width budget hold) and the label as a
+  // sentence. Minute memo on the 0.05° observer; em dashes become commas (a reader never hears "em dash").
+  const visLatKey = Math.round(latDeg * 20);
+  const visLonKey = Math.round(lonDeg * 20);
+  const moonVis = useMemo(
+    () => moonVisibilityAt(minuteKey * 60_000, visLatKey / 20, visLonKey / 20),
+    [minuteKey, visLatKey, visLonKey],
+  );
+  const moonVisLabel = `Moon ${moonVis.label.toLowerCase()} now: ${moonVis.reason.replace(/ — /g, ", ")}`;
 
   // The long press on the NAME (the ORCH shape — TabBar's twin, one timer for the row) — with
   // one hardening the twin lacks: the press is judged by the pointer events' OWN timestamps on
@@ -219,7 +230,7 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
       }}
 
       onContextMenu={(e) => e.preventDefault()}
-      aria-label={`Tracked target: ${target.name}. ${almanacLabel}. Open details; hold the name to aim the view at it`}
+      aria-label={`Tracked target: ${target.name}. ${almanacLabel}. ${moonVisLabel}. Open details; hold the name to aim the view at it`}
     >
       <span className="m-peek__glyph" aria-hidden="true">
         {kindGlyph(target.kind) + TEXT_GLYPH}
@@ -244,7 +255,12 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
           <span>↓</span>
         </span>
         {almanac.map((a) => (
-          <span className="m-peek__alm-cell" data-body={a.key} key={a.key}>
+          <span
+            className="m-peek__alm-cell"
+            data-body={a.key}
+            data-vis={a.key === "moon" ? moonVis.verdict : undefined}
+            key={a.key}
+          >
             <span className={`m-peek__alm-glyph m-peek__alm-glyph--${a.key}`}>{a.glyph + TEXT_GLYPH}</span>
             <span className="m-peek__alm-times">
               {[a.rs.rise, a.rs.set].map((e, i) => (

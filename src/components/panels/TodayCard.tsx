@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useTimeStore } from "../../store/time";
 import { dayEvents, moonPhaseEvents, type PlanEvent, type PlanEventKind } from "../../lib/ephemeris/planner";
 import { lightPhaseAt, sunAltDeg } from "../../lib/ephemeris/twilight";
+import { moonVisibilityAt, type MoonVisibility } from "../../lib/ephemeris/moonVisibility";
 import { formatSigned } from "../../lib/format/readout";
 import { downloadIcs } from "../../lib/export/ics";
 import { GOLDEN } from "../globe/tuning";
@@ -38,6 +39,21 @@ const CHIP_LABEL: Record<PlanEventKind, string> = {
 const DATED_KINDS: ReadonlySet<PlanEventKind> = new Set(["fullMoon", "newMoon"]);
 
 const DAY_MS = 24 * 3600_000;
+
+/** T200 (owner 2026-10-25e): the low-moon shot's offset — the verdict is sampled 40 min after a
+ *  moonrise / before a moonset (the moon ~6–8° up), never AT the event (it is on the horizon). */
+const MOON_SHOT_OFFSET_MS = 40 * 60_000;
+/** The sample instant + the sentence the meta's title / aria-label carries. */
+function moonShotVerdict(
+  kind: "moonrise" | "moonset",
+  eventMs: number,
+  latDeg: number,
+  lonDeg: number,
+): { vis: MoonVisibility; say: string } {
+  const rise = kind === "moonrise";
+  const vis = moonVisibilityAt(eventMs + (rise ? MOON_SHOT_OFFSET_MS : -MOON_SHOT_OFFSET_MS), latDeg, lonDeg);
+  return { vis, say: `Moon 40 min ${rise ? "after moonrise" : "before moonset"} — ${vis.reason}` };
+}
 
 const hhmm = (ms: number) =>
   new Date(ms)
@@ -83,6 +99,9 @@ export default function TodayCard({ latDeg, lonDeg }: { latDeg: number; lonDeg: 
       // R5 quality signal: the sun's elevation at moonrise/set — daylight moonrises look pale.
       sunAtMoon:
         e.kind === "moonrise" || e.kind === "moonset" ? sunAltDeg(e.utcMs, lat, lon) : null,
+      // T200: the moon's perceived visibility for the low-moon shot (inside the day memo).
+      moonShot:
+        e.kind === "moonrise" || e.kind === "moonset" ? moonShotVerdict(e.kind, e.utcMs, lat, lon) : null,
     }));
   }, [dayKey, latKey, lonKey]);
 
@@ -90,7 +109,7 @@ export default function TodayCard({ latDeg, lonDeg }: { latDeg: number; lonDeg: 
     <>
       <div className="pp-section">TODAY · MIDNIGHT → MIDNIGHT</div>
       <div className="pp-day">
-        {rows.map(({ e, light, sunAtMoon }) => (
+        {rows.map(({ e, light, sunAtMoon, moonShot }) => (
           <div className="pp-day__row" key={`${e.kind}:${e.utcMs}`}>
             <button
               type="button"
@@ -109,6 +128,11 @@ export default function TodayCard({ latDeg, lonDeg }: { latDeg: number; lonDeg: 
                   title="Sun elevation at that moment — a daylight moon photographs pale"
                 >
                   ☀{formatSigned(Math.round(sunAtMoon))}
+                </span>
+              )}
+              {moonShot != null && (
+                <span className="pp-day__meta" title={moonShot.say}>
+                  {`☾ ${moonShot.vis.label}`}
                 </span>
               )}
             </button>

@@ -134,6 +134,32 @@ describe("TargetPeek — the almanac", () => {
     expect(shell).toMatch(/<FacadePeek \/>\s*<TargetPeek onOpen=/);
   });
 
+  it("T200 (owner 2026-10-25e): the ☾ cell carries the moon's verdict as data-vis, the label says it — no visible text, no new element", () => {
+    // 14:45Z 2026-10-25, Dnipro: the moon low in civil twilight — BRIGHT (the moonVisibility worked case).
+    useTimeStore.setState({ live: false, timeMs: Date.UTC(2026, 9, 25, 14, 45), playRate: null });
+    const html = render();
+    expect(html).toMatch(/m-peek__alm-cell" data-body="moon" data-vis="bright"/);
+    expect(html).not.toMatch(/data-body="(sun|target)" data-vis=/);
+    expect((html.match(/data-vis=/g) ?? []).length).toBe(1);
+    // The cell's markup is otherwise the almanac's: glyph + two clocks, no badge text.
+    expect(html).not.toMatch(/>BRIGHT</);
+    const l = label(html);
+    expect(l).toMatch(/\. Moon bright now: civil twilight · low in haze, [\d.]+ mag lost, orange\. Open details;/);
+    expect(l).not.toMatch(/—/);
+    // A daylight moon reads pale (2026-11-02 08:00Z).
+    useTimeStore.setState({ timeMs: Date.UTC(2026, 10, 2, 8, 0) });
+    const pale = render();
+    expect(pale).toMatch(/data-body="moon" data-vis="pale"/);
+    expect(label(pale)).toMatch(/Moon pale now: daylight/);
+  });
+
+  it("T200 CSS: the faint / lost dim is opacity only on the ☾ glyph — no box property", () => {
+    const css = readFileSync(join(root, "src/styles/mobile/chrome.css"), "utf8");
+    const m = css.match(/\.m-peek__alm-cell\[data-vis="faint"\] \.m-peek__alm-glyph,\s*\.m-peek__alm-cell\[data-vis="lost"\] \.m-peek__alm-glyph \{([^}]*)\}/);
+    expect(m).not.toBeNull();
+    expect(m![1].trim()).toBe("opacity: 0.55;");
+  });
+
   it("CSS invariants: both clusters are the two 0.56rem / 1.15 lines, the row's pads untouched, the glyph inks, no dead .m-peek__rs rule", () => {
     const css = readFileSync(join(root, "src/styles/mobile/chrome.css"), "utf8");
     const block = (sel: string) => {

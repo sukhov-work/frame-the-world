@@ -34,6 +34,7 @@ import {
   type EclipseRow,
 } from "../../lib/ephemeris/eclipse";
 import { lambdaToMs } from "../../lib/ephemeris/showers";
+import { moonVisibilityAt, type MoonVerdict } from "../../lib/ephemeris/moonVisibility";
 import { subjectDistanceForDiscMatch } from "../../lib/geo/sizeDistance";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { cardinal } from "../../lib/format/readout";
@@ -553,6 +554,17 @@ function ConstellationFacts({ target }: { target: SkyTarget }) {
   );
 }
 
+/** T200: the moon verdict's badge tone — the ABOVE / SKYLINE badges' own two inks, plain for PALE. */
+const MOON_VIS_BADGE: Record<MoonVerdict, string> = {
+  bright: " tp-badge--up",
+  clear: " tp-badge--up",
+  pale: "",
+  faint: " tp-badge--sky-blocked",
+  lost: " tp-badge--sky-blocked",
+  sunward: " tp-badge--sky-blocked",
+  below: " tp-badge--sky-blocked",
+};
+
 export default function TargetPanel() {
   const drag = usePanelDrag("target");
   const open = useSkyStore((s) => s.open);
@@ -617,6 +629,15 @@ export default function TargetPanel() {
     const t = minuteKey * 60_000;
     return targetAzAlt(target, t, latDeg, lonDeg);
   }, [minuteKey, latDeg, lonDeg, target]);
+  // T200 (owner 2026-10-25e): the tracked MOON's perceived visibility at scene time — gated on
+  // `target.kind` (the sun and the moon share the planet facts shape), on the same minute memo.
+  const trackedMoon = target.kind === "moon";
+  const visLatKey = Math.round(latDeg * 20); // the 0.05° observer
+  const visLonKey = Math.round(lonDeg * 20);
+  const moonVis = useMemo(
+    () => (trackedMoon ? moonVisibilityAt(minuteKey * 60_000, visLatKey / 20, visLonKey / 20) : null),
+    [trackedMoon, minuteKey, visLatKey, visLonKey],
+  );
 
   // The forward scan is the expensive call (~10–20 ms) — only while the card is open, keyed to
   // the hour, the anchor AND the target so scrubbing minutes or nudging the camera never re-runs.
@@ -689,6 +710,11 @@ export default function TargetPanel() {
                   title={`Local skyline at ${Math.round(planTarget.azDeg)}° is ${planTarget.skylineAltDeg.toFixed(1)}° (terrain + streamed buildings around the plan anchor)`}
                 >
                   {planTarget.blockedNow ? "BEHIND SKYLINE" : "SKYLINE CLEAR"}
+                </span>
+              )}
+              {moonVis && moonVis.verdict !== "below" && (
+                <span className={`tp-badge${MOON_VIS_BADGE[moonVis.verdict]}`} title={moonVis.reason}>
+                  {moonVis.label}
                 </span>
               )}
             </div>
