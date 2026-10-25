@@ -133,3 +133,64 @@ function bisect(
   }
   return Math.round((lo + hi) / 2);
 }
+
+/** One side of a day's rise / set: the instant and how many CLOCK days after the row's day it falls on
+ *  (0 = today, 1 = tomorrow — the flights' "+1" arrival notation). */
+export interface DayEvent {
+  ms: number;
+  dayOffset: number;
+}
+export interface DayRiseSet {
+  rise: DayEvent | null;
+  set: DayEvent | null;
+  /** The clock day [start, end) the pair was solved for (browser-local midnight to midnight). */
+  dayStartMs: number;
+  dayEndMs: number;
+}
+
+const DAY_MS = 86_400_000;
+
+/** The BROWSER-LOCAL calendar day [start, end) holding `ms` — the day of the clock the /m row prints
+ *  (`localTimeStr`), midnight to midnight, DST-safe (a 23 / 25 h day keeps its true end). Deliberately NOT
+ *  `dayArc.localDayWindow` (the planner's whole-hour SOLAR day at the observer's longitude: Dnipro's starts
+ *  at 01:00 on a summer clock) — the owner's rule is the clock's midnight. */
+export function clockDayWindow(ms: number): { startMs: number; endMs: number } {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  const startMs = d.getTime();
+  const e = new Date(startMs);
+  e.setDate(e.getDate() + 1);
+  return { startMs, endMs: e.getTime() };
+}
+
+/**
+ * THE DAY'S rise and set of `target` — the clock day's own events, not the next ones (owner 2026-10-25c:
+ * "until the end of the day, so until 00:00, keep calculating all pairs for the CURRENT day; if the moon
+ * rises today but sets tomorrow, add a micro indication like (+1)").
+ *
+ * Why the row printed tomorrow's times before: it was built on `nextRiseSet` — the ALMANAC "next event"
+ * semantics of 2026-09-16 ("the object's NEXT rise ↑ and NEXT set ↓"), a watch's "next alarm": strictly
+ * after scene time. At 15:00 the sun's next rise is tomorrow's, and once the moon is up its next rise is
+ * tomorrow's 16:08 while today's 15:45 has already happened. A timetable reads the other way: today's
+ * rise even if it has passed, today's set, and a "+1" where the set (or the rise) only comes tomorrow.
+ *
+ * Each side is the FIRST event at or after the day's start within 48 h (two days always hold one of each
+ * when they exist — a moonrise can skip a calendar day); an event past the day's end carries the number
+ * of clock days it lies ahead. Null when the object never crosses in the window (circumpolar / never up).
+ */
+export function dayRiseSet(
+  target: SkyTarget,
+  nowMs: number,
+  latDeg: number,
+  lonDeg: number,
+  opts: RiseSetOptions = {},
+): DayRiseSet {
+  const { startMs, endMs } = clockDayWindow(nowMs);
+  // `nextRiseSet` is strictly-after: a crossing exactly at midnight is still today's.
+  const rs = nextRiseSet(target, startMs - 1, latDeg, lonDeg, { scanHours: 48, ...opts });
+  const tag = (ms: number | null): DayEvent | null =>
+    ms === null
+      ? null
+      : { ms, dayOffset: ms < endMs ? 0 : Math.round((clockDayWindow(ms).startMs - startMs) / DAY_MS) };
+  return { rise: tag(rs.riseMs), set: tag(rs.setMs), dayStartMs: startMs, dayEndMs: endMs };
+}

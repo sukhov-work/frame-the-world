@@ -36,6 +36,7 @@ const render = () => {
 };
 const cells = (html: string) => [...html.matchAll(/m-peek__alm-cell" data-body="(\w+)"/g)].map((m) => m[1]);
 const clocks = (html: string) => [...html.matchAll(/class="m-peek__alm-t">([^<]*)</g)].map((m) => m[1]);
+const marks = (html: string) => [...html.matchAll(/class="m-peek__alm-d">([^<]*)</g)].map((m) => m[1]);
 const label = (html: string) => html.match(/aria-label="([^"]*)"/)?.[1] ?? "";
 
 describe("TargetPeek — the almanac", () => {
@@ -68,7 +69,8 @@ describe("TargetPeek — the almanac", () => {
   it("the row's label names every body's rise and set (the button's label replaces its content for a reader)", () => {
     const l = label(render());
     expect(l).toMatch(/^Tracked target: /);
-    expect(l).toMatch(/\. Sun rise (\d\d:\d\d|none), set (\d\d:\d\d|none); Moon rise (\d\d:\d\d|none), set (\d\d:\d\d|none); 10P rise (\d\d:\d\d|none), set (\d\d:\d\d|none)\. /);
+    const t = "(\\d\\d:\\d\\d( next day| in \\d days)?|none)";
+    expect(l).toMatch(new RegExp(`\\. Sun rise ${t}, set ${t}; Moon rise ${t}, set ${t}; 10P rise ${t}, set ${t}\\. `));
     expect(l).not.toMatch(/—/); // a reader hears "none", never "em dash"
     expect(l).toMatch(/Open details; hold the name to aim the view at it$/);
   });
@@ -99,13 +101,33 @@ describe("TargetPeek — the almanac", () => {
     expect(render()).toBe("");
   });
 
-  it("source fences: the almanac bodies are module constants; the own-pair rule is the kind; the glyph is kindGlyph", () => {
+  it("the day's events (owner 2026-10-25c): at 15:00 the sun's rise is this morning's, not tomorrow's; a tomorrow event wears +1 in the cell and 'next day' in the label", () => {
+    // 15:00 local on 2026-08-21 — the sun rose this morning; the row must print THAT rise (the old row printed tomorrow's).
+    useTimeStore.setState({ live: false, timeMs: new Date(2026, 7, 21, 15, 0).getTime(), playRate: null });
+    useSkyStore.setState({ target: bodyTarget("sun") });
+    const html = render();
+    const c = clocks(html);
+    const sunRise = Number(c[0].slice(0, 2));
+    expect(sunRise).toBeLessThan(12); // a morning clock, this morning's
+    expect(marks(html).every((m) => /^\+\d$/.test(m))).toBe(true);
+    // The label mirrors the marker's meaning in words.
+    const l = label(html);
+    expect(l).not.toMatch(/\+\d/);
+    if (marks(html).length > 0) expect(l).toMatch(/next day|in \d days/);
+    // Any marker renders INSIDE its clock span, after the digits — never a third row.
+    expect(html).not.toMatch(/m-peek__alm-d"[^<]*<\/span><span class="m-peek__alm-t/);
+    expect((html.match(/m-peek__alm-times/g) ?? []).length).toBe(2);
+  });
+
+  it("source fences: the almanac bodies are module constants; the own-pair rule is the kind; the pairs are the DAY's (dayRiseSet, memoised on the clock day)", () => {
     const src = readFileSync(join(root, "src/components/mobile/TargetPeek.tsx"), "utf8");
     expect(src).toMatch(/^const SUN_TARGET = bodyTarget\("sun"\);$/m);
     expect(src).toMatch(/^const MOON_TARGET = bodyTarget\("moon"\);$/m);
     expect(src).toMatch(/const ownPair = target\.kind !== "sun" && target\.kind !== "moon";/);
-    expect(src).toMatch(/useNextRiseSet\(SUN_TARGET, minuteKey \* 60_000, latDeg, lonDeg\)/);
-    expect(src).toMatch(/useNextRiseSet\(MOON_TARGET, minuteKey \* 60_000, latDeg, lonDeg\)/);
+    expect(src).toMatch(/useDayRiseSet\(SUN_TARGET, minuteKey \* 60_000, latDeg, lonDeg\)/);
+    expect(src).toMatch(/useDayRiseSet\(MOON_TARGET, minuteKey \* 60_000, latDeg, lonDeg\)/);
+    expect(src).toMatch(/const sameDay = c !== null && nowMs >= c\.rs\.dayStartMs && nowMs < c\.rs\.dayEndMs;/);
+    expect(src).not.toMatch(/nextRiseSet/);
     expect(src).not.toMatch(/m-peek__rs/);
     // The mobile shell still mounts it under the facade peek, above the dock.
     const shell = readFileSync(join(root, "src/components/mobile/MobileShell.tsx"), "utf8");
@@ -137,6 +159,11 @@ describe("TargetPeek — the almanac", () => {
     expect(block(".m-peek__pos")).toMatch(/border-left: 1px solid/);
     // The legend's rows sit on the clocks' rows: 0.5rem × 1.288 = 0.56rem × 1.15.
     expect(block(".m-peek__alm-k")).toMatch(/line-height: 1\.288;/);
+    // The "+1" marker stays out of the line box: line-height 0, a relative lift, a micro size.
+    const d = block(".m-peek__alm-d");
+    expect(d).toMatch(/line-height: 0;/);
+    expect(d).toMatch(/position: relative;/);
+    expect(d).toMatch(/font-size: 0\.4\drem;/);
     expect(0.5 * 1.288).toBeCloseTo(0.56 * 1.15, 6);
     expect(block(".m-peek__alm-glyph--sun")).toMatch(/var\(--color-sun-glow\)/);
     expect(block(".m-peek__alm-glyph--moon")).toMatch(/var\(--color-moonlight\)/);

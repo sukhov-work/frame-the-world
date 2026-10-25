@@ -184,6 +184,18 @@
 .m-peek__alm-glyph--target {
   color: var(--color-accent);
 }
+/* The day marker "+1" (owner 2026-10-25c — the flights' next-day arrival notation) on a clock that falls
+   tomorrow: a raised micro superscript. `line-height: 0` keeps it OUT of the line box, so the row's two
+   0.644rem rows — and the bar's height — do not move. */
+.m-peek__alm-d {
+  font-size: 0.42rem;
+  line-height: 0;
+  position: relative;
+  top: -0.3em;
+  margin-left: 1px;
+  letter-spacing: 0;
+  color: var(--color-text-muted);
+}
 /* The bearings, stacked (altitude over azimuth + cardinal) in the almanac's grammar — the one-line
    "12° · 245° SW" at 0.68rem took 86–93 px, the width the three pairs need; the stack is ~40 px at the
    SAME two-row height. A hairline on its left separates "when" from "where". */

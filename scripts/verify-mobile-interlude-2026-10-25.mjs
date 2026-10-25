@@ -333,7 +333,7 @@ const PEEK = `(() => {
   const badge = row.querySelector(".m-badge")?.getBoundingClientRect() ?? nr;
   const alm = row.querySelector(".m-peek__alm")?.getBoundingClientRect();
   const nameBudget = alm ? +(nr.width + (alm.left - badge.right - 10)).toFixed(1) : null;
-  const times = [...row.querySelectorAll(".m-peek__alm-t, .m-peek__rs-row")].map((t) => t.textContent.trim());
+  const times = [...row.querySelectorAll(".m-peek__alm-t, .m-peek__rs-row")].map((t) => t.textContent.trim()); // "02:11+1" when tomorrow's
   const pos = row.querySelector(".m-peek__pos")?.getBoundingClientRect();
   return { h: +r.height.toFixed(2), w: +r.width.toFixed(1), overflow: row.scrollWidth - row.clientWidth, name: name.textContent, nameW: +nr.width.toFixed(1),
     nameClipped: name.scrollWidth > name.clientWidth + 1, nameBudget, cells: cells.length, glyphs, times, posW: pos ? +pos.width.toFixed(1) : null, label: row.getAttribute("aria-label") };

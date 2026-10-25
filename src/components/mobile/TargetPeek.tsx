@@ -28,36 +28,35 @@ import { useCameraStore } from "../../store/camera";
 import { localTimeStr, sceneTimeMs, useTimeStore } from "../../store/time";
 import { aimAtSkyBody } from "../../store/skyAim";
 import { bodyTarget, targetAzAlt, targetShortName, type SkyTarget } from "../../lib/ephemeris/targets";
-import { nextRiseSet, type RiseSet } from "../../lib/ephemeris/riseSet";
+import { dayRiseSet, type DayEvent, type DayRiseSet } from "../../lib/ephemeris/riseSet";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { cardinal, EM_DASH } from "../../lib/format/readout";
 import { ORCH } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
 
-/** Rise/set recompute cadence (ms) — the times move by seconds per hour of observer drift;
- *  the cache also re-solves the moment a shown event passes (so "next" stays next). */
-const RISESET_BUCKET_MS = 10 * 60_000;
-
-/** The next rise/set for the row, memoised on (target · 0.01° observer · 10-min bucket) and
- *  re-solved when a displayed instant is no longer ahead of scene time. Pure compute — the
- *  sun/moon path is astronomy-engine's own finder (~1 ms), the scan path ≤ 300 `targetAzAlt`. */
-function useNextRiseSet(target: SkyTarget, nowMs: number, latDeg: number, lonDeg: number): RiseSet {
-  const cache = useRef<{ key: string; rs: RiseSet } | null>(null);
+/** THE DAY'S rise / set for the row (owner 2026-10-25c — the clock day's own events, a "+1" where one falls
+ *  tomorrow; before it the row printed the NEXT events after scene time, the 2026-09-16 almanac semantics, so
+ *  at 15:00 the sun's rise read as tomorrow's — see `lib/ephemeris/riseSet.dayRiseSet`), memoised on
+ *  (target · 0.01° observer · the clock day): a day's pairs never move within the day, and the memo rolls
+ *  at midnight with `dayStartMs`. Pure compute — the sun/moon path is astronomy-engine's own finder
+ *  (~1 ms), the scan path ≤ 300 `targetAzAlt`. */
+function useDayRiseSet(target: SkyTarget, nowMs: number, latDeg: number, lonDeg: number): DayRiseSet {
+  const cache = useRef<{ key: string; rs: DayRiseSet } | null>(null);
   const latR = latDeg.toFixed(2);
   const lonR = lonDeg.toFixed(2);
-  const key = `${target.id}|${latR}|${lonR}|${Math.floor(nowMs / RISESET_BUCKET_MS)}`;
   const c = cache.current;
-  const passed =
-    c !== null &&
-    ((c.rs.riseMs !== null && c.rs.riseMs <= nowMs) || (c.rs.setMs !== null && c.rs.setMs <= nowMs));
-  if (c === null || c.key !== key || passed) {
-    cache.current = { key, rs: nextRiseSet(target, nowMs, Number(latR), Number(lonR)) };
+  const sameDay = c !== null && nowMs >= c.rs.dayStartMs && nowMs < c.rs.dayEndMs;
+  const key = `${target.id}|${latR}|${lonR}`;
+  if (c === null || c.key !== key || !sameDay) {
+    cache.current = { key, rs: dayRiseSet(target, nowMs, Number(latR), Number(lonR)) };
   }
   return cache.current!.rs;
 }
 
 /** `↑ 05:42` — the browser's local clock, the dock's own grammar; an em dash when none. */
-const clock = (ms: number | null): string => (ms === null ? EM_DASH : localTimeStr(ms));
+const clock = (e: DayEvent | null): string => (e === null ? EM_DASH : localTimeStr(e.ms));
+/** The micro day marker: "+1" for tomorrow's event (the flights' arrival notation), nothing for today's. */
+const dayMark = (e: DayEvent | null): string | null => (e !== null && e.dayOffset > 0 ? `+${e.dayOffset}` : null);
 
 /** The permanent almanac bodies (owner 2026-10-25). Module constants: a SkyTarget carries a method and the
  *  rise/set memo keys read `target.id`, so one instance each is all the row ever needs. */
@@ -67,14 +66,20 @@ const MOON_TARGET = bodyTarget("moon");
  *  may fall back to Apple Color Emoji for when the mono stack lacks them; the selector keeps them as text so the
  *  cell inks (amber / moonlight / accent) hold. ☾ has no emoji form; the selector is inert on it. */
 const TEXT_GLYPH = "\uFE0E";
-/** The label's clock — "none" where the row prints an em dash (a reader says "em dash" or skips it). */
-const say = (ms: number | null): string => (ms === null ? "none" : localTimeStr(ms));
+/** The label's clock — "none" where the row prints an em dash (a reader says "em dash" or skips it);
+ *  "next day" / "in 2 days" where the row prints "+1" / "+2". */
+const say = (e: DayEvent | null): string =>
+  e === null
+    ? "none"
+    : e.dayOffset === 0
+      ? localTimeStr(e.ms)
+      : `${localTimeStr(e.ms)} ${e.dayOffset === 1 ? "next day" : `in ${e.dayOffset} days`}`;
 
 interface AlmanacCell {
   key: "sun" | "moon" | "target";
   glyph: string;
   name: string;
-  rs: RiseSet;
+  rs: DayRiseSet;
 }
 
 export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
@@ -107,12 +112,12 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
     [minuteKey, latDeg, lonDeg, target],
   );
   const upNow = now.altDeg > 0;
-  const riseSet = useNextRiseSet(target, minuteKey * 60_000, latDeg, lonDeg);
+  const riseSet = useDayRiseSet(target, minuteKey * 60_000, latDeg, lonDeg);
   // The almanac (owner 2026-10-25): the sun's and the moon's pairs always, the object's own pair only when
   // it is neither — a tracked sun or moon would print its times twice. Hooks run unconditionally; the
-  // render picks. Both finders are astronomy-engine's own (~1 ms), memoised on the 10-min bucket.
-  const sunRs = useNextRiseSet(SUN_TARGET, minuteKey * 60_000, latDeg, lonDeg);
-  const moonRs = useNextRiseSet(MOON_TARGET, minuteKey * 60_000, latDeg, lonDeg);
+  // render picks. Both finders are astronomy-engine's own (~1 ms), memoised on the clock day.
+  const sunRs = useDayRiseSet(SUN_TARGET, minuteKey * 60_000, latDeg, lonDeg);
+  const moonRs = useDayRiseSet(MOON_TARGET, minuteKey * 60_000, latDeg, lonDeg);
   const ownPair = target.kind !== "sun" && target.kind !== "moon";
   const almanac: AlmanacCell[] = [
     { key: "sun", glyph: kindGlyph("sun"), name: "Sun", rs: sunRs },
@@ -121,7 +126,7 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
       ? [{ key: "target" as const, glyph: kindGlyph(target.kind), name: targetShortName(target), rs: riseSet }]
       : []),
   ];
-  const almanacLabel = almanac.map((a) => `${a.name} rise ${say(a.rs.riseMs)}, set ${say(a.rs.setMs)}`).join("; ");
+  const almanacLabel = almanac.map((a) => `${a.name} rise ${say(a.rs.rise)}, set ${say(a.rs.set)}`).join("; ");
 
   // The long press on the NAME (the ORCH shape — TabBar's twin, one timer for the row) — with
   // one hardening the twin lacks: the press is judged by the pointer events' OWN timestamps on
@@ -229,9 +234,10 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
       ) : (
         !upNow && <span className="m-badge">BELOW</span>
       )}
-      {/* The ALMANAC (owner 2026-10-25; the single stacked pair of 2026-09-16 grew into it): the next rise ↑
-          over the next set ↓, one 2-row cell per body with its glyph — ☀ and ☾ always, the object's own pair
-          beside them unless it IS one of them. The same two 0.56rem lines, so the row is not a pixel taller. */}
+      {/* The ALMANAC (owner 2026-10-25; the single stacked pair of 2026-09-16 grew into it): the DAY's rise ↑
+          over the DAY's set ↓ (2026-10-25c — today's own events, a "+1" where one falls tomorrow), one 2-row cell
+          per body with its glyph — ☀ and ☾ always, the object's own pair beside them unless it IS one of them.
+          The same two 0.56rem lines, so the row is not a pixel taller (the marker's line-height is 0). */}
       <span className="m-peek__alm" aria-hidden="true">
         <span className="m-peek__alm-k">
           <span>↑</span>
@@ -241,8 +247,12 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
           <span className="m-peek__alm-cell" data-body={a.key} key={a.key}>
             <span className={`m-peek__alm-glyph m-peek__alm-glyph--${a.key}`}>{a.glyph + TEXT_GLYPH}</span>
             <span className="m-peek__alm-times">
-              <span className="m-peek__alm-t">{clock(a.rs.riseMs)}</span>
-              <span className="m-peek__alm-t">{clock(a.rs.setMs)}</span>
+              {[a.rs.rise, a.rs.set].map((e, i) => (
+                <span className="m-peek__alm-t" key={i}>
+                  {clock(e)}
+                  {dayMark(e) && <span className="m-peek__alm-d">{dayMark(e)}</span>}
+                </span>
+              ))}
             </span>
           </span>
         ))}

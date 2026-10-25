@@ -497,7 +497,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
               "Touch controls on /m: the AIM stick above the WALK stick on the left rail; AR, " +
               "the rise and sink pads and SAVE on the right; the HUD readout on the strip's " +
               "right; the mini-map with its radar; and the tracked target's row, with the sun's, " +
-              "the moon's and its own next rise and set, above the dock.",
+              "the moon's and its own rise and set for the day (+1 marks tomorrow's), above the dock.",
             shell: "mobile",
           },
         ],
