@@ -14,8 +14,67 @@ import {
   sanitizeScoringPatch,
   type BestSpotScoringPatch,
 } from "./geo/bestSpotScoring";
+import type { TargetKind } from "./ephemeris/targets";
 
 export const VIEW_PREFS_KEY = "ftw:view-prefs:v1";
+
+/** One RECENT SKY SEARCH row (owner 2026-10-27, the /m search sheet) — exactly what the row
+ *  renders (glyph from `kind`, name, detail) plus the id `track()` resolves through the catalog,
+ *  so the idle list draws without loading the catalog chunk. */
+export interface RecentSkyEntry {
+  id: string;
+  name: string;
+  detail: string;
+  kind: TargetKind;
+}
+/** Kept in the blob vs shown in the sheet — a little headroom so a re-pick reorders, not forgets. */
+export const RECENT_SKY_KEEP = 5;
+export const RECENT_SKY_SHOW = 3;
+
+/** The TargetKind union as a runtime set — the sanitize gate for a persisted recent's `kind`. */
+const TARGET_KINDS: ReadonlySet<string> = new Set<TargetKind>([
+  "sun",
+  "planet",
+  "moon",
+  "star",
+  "comet",
+  "asteroid",
+  "galaxy",
+  "nebula",
+  "cluster",
+  "constellation",
+  "shower",
+  "other",
+]);
+/** The sun and the moon are PINNED above the list (QUICK TARGETS) — never a recent. */
+const PINNED_SKY_IDS: ReadonlySet<string> = new Set(["body:sun", "body:moon"]);
+
+/** The recents list after `entry` was tracked from a search: a NEW list, the entry at the front,
+ *  its older copy removed, capped at RECENT_SKY_KEEP. The pinned sun/moon are never added (the
+ *  list comes back unchanged) — the pinned rows route through the same `track()`. Pure. */
+export function recentSkyAfter(list: RecentSkyEntry[], entry: RecentSkyEntry): RecentSkyEntry[] {
+  if (PINNED_SKY_IDS.has(entry.id)) return list;
+  return [entry, ...list.filter((e) => e.id !== entry.id)].slice(0, RECENT_SKY_KEEP);
+}
+
+/** Each element must look like a row we wrote; junk elements are dropped, never thrown on. */
+function sanitizeRecentSky(raw: unknown[]): RecentSkyEntry[] {
+  const out: RecentSkyEntry[] = [];
+  const seen = new Set<string>();
+  for (const e of raw) {
+    if (typeof e !== "object" || e === null) continue;
+    const { id, name, detail, kind } = e as Record<string, unknown>;
+    if (typeof id !== "string" || id.length > 80 || !id.includes(":")) continue;
+    if (typeof name !== "string" || typeof detail !== "string") continue;
+    if (typeof kind !== "string" || !TARGET_KINDS.has(kind)) continue;
+    if (PINNED_SKY_IDS.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    // A long name / detail (an enriched SIMBAD row) is CUT, not dropped — the id is what the row resolves by.
+    out.push({ id, name: name.slice(0, 80), detail: detail.slice(0, 120), kind: kind as TargetKind });
+    if (out.length >= RECENT_SKY_KEEP) break;
+  }
+  return out;
+}
 
 export interface ViewPrefs {
   /** Blob revision stamp — written by every save. Rev < 2 marks a blob from before the
@@ -114,6 +173,9 @@ export interface ViewPrefs {
    * 2026-08-19 build could persist false. This key has no boolean default to resurrect.
    */
   bestSpotTuning?: BestSpotScoringPatch;
+  /** RECENT SKY SEARCHES (owner 2026-10-27, the /m search sheet): the last sky objects tracked FROM A SEARCH,
+   *  newest first, never the sun or the moon (they are pinned above the list). Up to 5 kept, 3 shown. */
+  recentSky?: RecentSkyEntry[];
 }
 
 /** Keep only known keys with the right types; clamp numerics. Pure — unit-tested directly. */
@@ -172,6 +234,12 @@ export function sanitizeViewPrefs(raw: unknown): ViewPrefs {
   // (shape-driven: unknown keys and wrong types are dropped, the §5.5 clamps are applied).
   if (typeof r.bestSpotTuning === "object" && r.bestSpotTuning !== null)
     out.bestSpotTuning = sanitizeScoringPatch(r.bestSpotTuning);
+  // RECENT SKY SEARCHES (owner 2026-10-27): an array or nothing; bad rows, the pinned sun/moon
+  // and duplicate ids are dropped, the rest capped at RECENT_SKY_KEEP; nothing left → omitted.
+  if (Array.isArray(r.recentSky)) {
+    const recent = sanitizeRecentSky(r.recentSky);
+    if (recent.length > 0) out.recentSky = recent;
+  }
   return out;
 }
 

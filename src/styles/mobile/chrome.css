@@ -99,28 +99,78 @@
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-bg) 85%, transparent);
 }
 
-/* ── Target peek row (tap = TARGET sheet) ──────────────────────────────────────────────── */
+/* ── Target peek BAR: [☀][☾] quick targets + the row (tap = TARGET sheet) ──────────────── */
+/* Owner 2026-10-27: two round icon-only QUICK TARGET cells lead the bar (☀ then ☾; the tracked body's own cell
+   dropped). The bar carries the hairline the row used to; the row is a flex child that takes the slack. The cells
+   ride INSIDE the row's 0.5rem pads (a negative vertical margin), so the bar is not a pixel taller than the
+   38.59 px row of 2026-10-25 — the owner's hard line. */
+.m-peekbar {
+  display: flex;
+  align-items: center;
+  gap: 4px; /* between the two cells; the row's own left pad separates the pair from the name */
+  padding-left: 0.3rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+.m-peek__quick {
+  flex: none;
+  position: relative; /* the ::before touch extension */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  margin: -4px 0; /* 25 − 8 = 17 px of the row's 22.6 px content height — the row stays the tall one */
+  padding: 0;
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1;
+  font-variant-emoji: text; /* with the U+FE0E selector in the markup: never a colour emoji on iOS */
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-muted) 30%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+/* The touch target: 39 × 29 px on a 25 px cell (the pair sits 4 px apart — no horizontal overlap). */
+.m-peek__quick::before {
+  content: "";
+  position: absolute;
+  inset: -7px -2px;
+}
+.m-peek__quick--sun {
+  color: var(--color-sun-glow);
+  border-color: color-mix(in srgb, var(--color-sun-glow) 45%, transparent);
+}
+.m-peek__quick--moon {
+  color: var(--color-moonlight);
+  border-color: color-mix(in srgb, var(--color-moonlight) 45%, transparent);
+}
+.m-peek__quick:active {
+  background: color-mix(in srgb, var(--color-text) 16%, transparent);
+}
+/* The row's badge (CLEAR / BEHIND / BELOW) a notch tighter than the sheet's: with the pair up, a 7-letter planet
+   below the horizon ("JUPITER" + BELOW) is the row's widest common case — measured unclipped on every twin. */
+.m-peek .m-badge {
+  padding: 0.14rem 0.4rem;
+}
 .m-peek {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 0.68rem;
   letter-spacing: 0.06em;
   color: var(--color-text);
   background: transparent;
   border: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text-muted) 12%, transparent);
-  padding: 0.5rem 0.9rem;
+  padding: 0.5rem 0.9rem 0.5rem 0.3rem; /* the left pad is the pair → name gap since 2026-10-27 */
   text-align: left;
   /* 2026-10-25: with the almanac only the name can shrink — under Android's large-text scaling or a long
      name + BEHIND the fixed parts can exceed the row; clip at the row's edge rather than push past it. */
   overflow: hidden;
-}
-.m-peek__glyph {
-  color: var(--color-accent);
-  font-variant-emoji: text;
 }
 .m-peek__name {
   font-weight: 500;
@@ -226,6 +276,40 @@
   }
   .m-peek__alm {
     gap: 4px;
+  }
+}
+
+/* A narrow phone (360–375 px): the quick cells shrink a notch, the pair and the row's fixed parts tighten, so a
+   6-letter name keeps its letters (measured on the 360 px twin: the budget 26 → 44 px; 402 / 412 px untouched). */
+@media (max-width: 375px) {
+  .m-peekbar {
+    gap: 2px;
+    padding-left: 0.25rem;
+  }
+  .m-peek__quick {
+    width: 21px;
+    height: 21px;
+    margin: -3px 0;
+    font-size: 0.68rem;
+  }
+  .m-peek {
+    padding-left: 0.25rem;
+  }
+  .m-peek__quick::before {
+    inset: -7px -1px; /* the pair sits 2 px apart here — still no horizontal overlap */
+  }
+  .m-peek .m-badge {
+    padding: 0.14rem 0.3rem;
+  }
+  .m-peek__pos {
+    padding-left: 4px;
+  }
+  /* The 2026-10-25 narrow rule (gap 7 / 4) stays as written above; these later rules win at the same specificity. */
+  .m-peek {
+    gap: 6px;
+  }
+  .m-peek__alm {
+    gap: 3px;
   }
 }
 
@@ -956,6 +1040,19 @@ a.m-hit {
   letter-spacing: 0.22em;
   color: var(--color-text-secondary);
   padding: 0.5rem 0.2rem 0.35rem;
+}
+
+/* ── QUICK SKY TARGETS + RECENT (owner 2026-10-27): the idle SKY sheet's pinned ☀ ☾ rows + the last 3 searches ── */
+/* The rows ARE .m-hit and the heads ARE .m-places__head — this only spaces the block and inks the
+   two pinned names in their body colour (the detail line keeps the default ink). */
+.m-quick {
+  margin-top: 0.4rem;
+}
+.m-quick [data-quick="sun"] .m-hit__name {
+  color: var(--color-sun-glow);
+}
+.m-quick [data-quick="moon"] .m-hit__name {
+  color: var(--color-moonlight);
 }
 
 /* Status-strip account chip — a member label can be long; the strip cannot. */

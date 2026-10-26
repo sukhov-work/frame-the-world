@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  RECENT_SKY_KEEP,
+  RECENT_SKY_SHOW,
   VIEW_PREFS_KEY,
   loadViewPrefs,
+  recentSkyAfter,
+  type RecentSkyEntry,
   sanitizeViewPrefs,
   saveViewPref,
 } from "../../src/lib/prefs";
@@ -274,5 +278,76 @@ describe("view prefs — texturesVisible (T182)", () => {
   it("a persisted OFF survives an un-stamped (pre-rev-2) blob — no re-arm join", () => {
     expect(sanitizeViewPrefs({ texturesVisible: false }).texturesVisible).toBe(false);
     expect(sanitizeViewPrefs({ prefsRev: 2, texturesVisible: false }).texturesVisible).toBe(false);
+  });
+});
+
+// RECENT SKY SEARCHES (owner 2026-10-27, the /m search sheet) — the last sky objects tracked from a
+// search, newest first, never the pinned sun/moon; 5 kept in the blob, 3 shown.
+describe("view prefs — recentSky (owner 2026-10-27)", () => {
+  const row = (n: number): RecentSkyEntry => ({ id: `m:${n}`, name: `M${n}`, detail: "GALAXY", kind: "galaxy" });
+
+  it("recentSkyAfter puts the entry at the front and returns a NEW list", () => {
+    const list = [row(1), row(2)];
+    const next = recentSkyAfter(list, row(3));
+    expect(next.map((e) => e.id)).toEqual(["m:3", "m:1", "m:2"]);
+    expect(next).not.toBe(list);
+    expect(list.map((e) => e.id)).toEqual(["m:1", "m:2"]);
+  });
+  it("recentSkyAfter dedupes by id — a re-pick moves to the front", () => {
+    expect(recentSkyAfter([row(1), row(2), row(3)], row(3)).map((e) => e.id)).toEqual(["m:3", "m:1", "m:2"]);
+  });
+  it("recentSkyAfter caps at RECENT_SKY_KEEP", () => {
+    const full = [1, 2, 3, 4, 5].map(row);
+    const next = recentSkyAfter(full, row(6));
+    expect(RECENT_SKY_KEEP).toBe(5);
+    expect(RECENT_SKY_SHOW).toBe(3);
+    expect(next.map((e) => e.id)).toEqual(["m:6", "m:1", "m:2", "m:3", "m:4"]);
+  });
+  it("recentSkyAfter never adds the pinned sun or moon", () => {
+    const list = [row(1)];
+    expect(recentSkyAfter(list, { id: "body:sun", name: "SUN", detail: "x", kind: "sun" })).toBe(list);
+    expect(recentSkyAfter(list, { id: "body:moon", name: "MOON", detail: "x", kind: "moon" })).toBe(list);
+  });
+
+  it("sanitize: not an array → omitted", () => {
+    expect("recentSky" in sanitizeViewPrefs({ recentSky: "m:1" })).toBe(false);
+    expect("recentSky" in sanitizeViewPrefs({ recentSky: { id: "m:1" } })).toBe(false);
+    expect("recentSky" in sanitizeViewPrefs({})).toBe(false);
+  });
+  it("sanitize: bad elements, the sun/moon and duplicates dropped; a long detail CUT to 120 (never dropped — the id is what resolves); > 5 cut", () => {
+    const out = sanitizeViewPrefs({
+      recentSky: [
+        null,
+        "m:1",
+        { id: "nocolon", name: "X", detail: "X", kind: "star" },
+        { id: "x:".padEnd(81, "a"), name: "X", detail: "X", kind: "star" },
+        { id: "m:9", name: 7, detail: "X", kind: "star" },
+        { id: "m:9", name: "X", detail: "X".repeat(121), kind: "star" },
+        { id: "m:9", name: "X", detail: "X", kind: "planetoid" },
+        { id: "body:moon", name: "MOON", detail: "X", kind: "moon" },
+        row(1),
+        row(1),
+        row(2),
+        { id: "body:sun", name: "SUN", detail: "X", kind: "sun" },
+        row(3),
+        row(4),
+        row(5),
+        row(6),
+      ],
+    });
+    // The 121-char detail row SURVIVES, cut to 120 (the other two m:9 rows — a numeric name, an unknown kind — are junk).
+    expect(out.recentSky?.map((e) => e.id)).toEqual(["m:9", "m:1", "m:2", "m:3", "m:4"]);
+    expect(out.recentSky?.[0].detail).toBe("X".repeat(120));
+    expect(sanitizeViewPrefs({ recentSky: [{ id: "m:1", name: "N".repeat(90), detail: "D", kind: "star" }] }).recentSky?.[0].name).toBe("N".repeat(80));
+  });
+  it("sanitize: an array of only junk → omitted", () => {
+    expect("recentSky" in sanitizeViewPrefs({ recentSky: [1, null, { id: "body:sun" }] })).toBe(false);
+  });
+  it("round-trips through the shared blob (no new localStorage key)", () => {
+    const store = fakeStorage();
+    vi.stubGlobal("localStorage", store);
+    saveViewPref("recentSky", [row(1)]);
+    expect(loadViewPrefs().recentSky).toEqual([row(1)]);
+    expect(store.length).toBe(1);
   });
 });

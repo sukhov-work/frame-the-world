@@ -25,6 +25,13 @@ import { aimAtSkyFromSearch } from "../../store/skyAim";
 import { sceneTimeMs } from "../../store/time";
 import { targetAzAlt } from "../../lib/ephemeris/targets";
 import { kindGlyph, type SkyIndexEntry } from "../../lib/sky/searchIndex";
+import {
+  RECENT_SKY_SHOW,
+  loadViewPrefs,
+  recentSkyAfter,
+  saveViewPref,
+  type RecentSkyEntry,
+} from "../../lib/prefs";
 import { SEARCH } from "../globe/tuning";
 import MobilePlaces from "./MobilePlaces";
 import "../../styles/mobile/chrome.css";
@@ -38,6 +45,18 @@ const SKY_MIN_QUERY_LEN = 2;
 // One catalog chunk per session, loaded on the first SKY interaction (lazy by contract).
 let catalogPromise: Promise<typeof import("../../lib/sky/catalog")> | null = null;
 const loadCatalog = () => (catalogPromise ??= import("../../lib/sky/catalog"));
+
+/** What a SKY row needs to render + resolve — a search hit, a pinned target and a recent alike. */
+type SkyRow = Pick<SkyIndexEntry, "id" | "name" | "detail" | "kind">;
+
+/** QUICK TARGETS (owner 2026-10-27: "pin them as quick search targets in search panel list (sun,
+ *  moon)"). Copied VERBATIM from the catalog's own `bodyEntry` rows (lib/sky/catalog.ts) so a pinned
+ *  row reads exactly like the search hit it stands for — copied, not imported: the catalog stays
+ *  dynamic-import-only (lazyContract.test.ts); mobileSearchQuickTargets.test.ts pins the drift. */
+const QUICK_SKY: readonly SkyRow[] = [
+  { id: "body:sun", name: "SUN", detail: "OUR STAR · MAG −26.7", kind: "sun" },
+  { id: "body:moon", name: "MOON", detail: "EARTH'S MOON · MAG ~−12.7", kind: "moon" },
+];
 
 export default function MobileSearch({
   onFly,
@@ -59,6 +78,9 @@ export default function MobileSearch({
   const abortRef = useRef<AbortController | null>(null);
   const skyQueryRef = useRef("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // RECENT SKY SEARCHES (owner 2026-10-27: "under them add 3 more recent sky searches (if any
+  // happened)") — persisted in the view-prefs blob, so a reopened sheet shows them too.
+  const [recents, setRecents] = useState<RecentSkyEntry[]>(() => loadViewPrefs().recentSky ?? []);
 
   const cancelPending = () => {
     if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
@@ -164,10 +186,16 @@ export default function MobileSearch({
     onFly();
   };
 
-  const track = (entry: SkyIndexEntry) => {
+  const track = (entry: SkyRow) => {
     void loadCatalog().then(async (cat) => {
       const target = await cat.targetByIdAsync(entry.id);
       if (!target) return;
+      // Recorded HERE (taps + the Enter path alike), only once the id resolved; the pinned
+      // sun/moon route through too and recentSkyAfter ignores them.
+      const { id, name, detail, kind } = entry;
+      const nextRecents = recentSkyAfter(loadViewPrefs().recentSky ?? [], { id, name, detail, kind });
+      saveViewPref("recentSky", nextRecents);
+      setRecents(nextRecents);
       const sky = useSkyStore.getState();
       sky.setTarget(target);
       if (!sky.visible) sky.setVisible(true); // tracking something you can't see helps no one
@@ -201,6 +229,16 @@ export default function MobileSearch({
 
   const sky = mode === "sky";
   const rowCount = sky ? skyHits.length : hits.length;
+  const idle = query.trim().length === 0;
+  // Plain buttons (the MY PLACES rows' grammar) — `role="option"` belongs only inside the results listbox below.
+  const skyRow = (row: SkyRow, data: { "data-quick"?: string; "data-recent"?: string }) => (
+    <button key={row.id} type="button" className="m-hit" {...data} onClick={() => track(row)}>
+      <span className="m-hit__name">
+        {kindGlyph(row.kind)} {row.name}
+      </span>
+      <span className="m-hit__detail">{row.detail}</span>
+    </button>
+  );
 
   return (
     <div role="search" aria-label={sky ? "Find an object in the sky" : "Find a place"}>
@@ -240,9 +278,20 @@ export default function MobileSearch({
           onKeyDown={onKeyDown}
         />
       </div>
+      {/* QUICK TARGETS + RECENT (owner 2026-10-27): the idle SKY sheet pins ☀ ☾ and the last 3
+          sky searches above MY PLACES — the same idiom (typing swaps it for results). Rows are
+          search-hit rows; a tap is a search pick (soft aim, owner 2026-08-18). */}
+      {sky && idle && (
+        <div className="m-quick" role="group" aria-label="Quick targets and recent sky searches">
+          <div className="m-places__head">QUICK TARGETS</div>
+          {QUICK_SKY.map((row) => skyRow(row, { "data-quick": row.kind }))}
+          {recents.length > 0 && <div className="m-places__head">RECENT</div>}
+          {recents.slice(0, RECENT_SKY_SHOW).map((row) => skyRow(row, { "data-recent": row.id }))}
+        </div>
+      )}
       {/* MY PLACES (owner 2026-08-15): the idle SEARCH sheet doubles as the saved-views list —
           typing swaps it for results, clearing brings it back. Jump closes the sheet (onFly). */}
-      {query.trim().length === 0 && <MobilePlaces onJump={onFly} />}
+      {idle && <MobilePlaces onJump={onFly} />}
       <div role="listbox" aria-label="Search results">
         {status === "loading" && <div className="m-status-line">SEARCHING…</div>}
         {status === "error" && <div className="m-status-line">SEARCH UNAVAILABLE — TRY AGAIN</div>}

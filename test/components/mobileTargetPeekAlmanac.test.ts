@@ -37,7 +37,8 @@ const render = () => {
 const cells = (html: string) => [...html.matchAll(/m-peek__alm-cell" data-body="(\w+)"/g)].map((m) => m[1]);
 const clocks = (html: string) => [...html.matchAll(/class="m-peek__alm-t">([^<]*)</g)].map((m) => m[1]);
 const marks = (html: string) => [...html.matchAll(/class="m-peek__alm-d">([^<]*)</g)].map((m) => m[1]);
-const label = (html: string) => html.match(/aria-label="([^"]*)"/)?.[1] ?? "";
+/** The ROW's label — since 2026-10-27 the quick ☀ ☾ cells render before it with labels of their own. */
+const label = (html: string) => html.match(/class="m-peek" aria-label="([^"]*)"/)?.[1] ?? "";
 
 describe("TargetPeek — the almanac", () => {
   beforeEach(() => {
@@ -54,7 +55,9 @@ describe("TargetPeek — the almanac", () => {
     expect(html).toMatch(/m-peek__alm-glyph m-peek__alm-glyph--sun">☀\uFE0E</);
     expect(html).toMatch(/m-peek__alm-glyph m-peek__alm-glyph--moon">☾\uFE0E</);
     expect(html).toMatch(/m-peek__alm-glyph m-peek__alm-glyph--target">☄\uFE0E</);
-    expect(html).toMatch(/class="m-peek__glyph" aria-hidden="true">☄\uFE0E</);
+    // The accent kind glyph that led the row left 2026-10-27 (the quick cells took its place; the almanac's
+    // target cell carries the kind) — `mobileTargetPeekQuick.test.ts` pins the cells.
+    expect(html).not.toMatch(/m-peek__glyph"/);
     expect(html.indexOf("☀")).toBeLessThan(html.indexOf("☾"));
     const c = clocks(html);
     expect(c).toHaveLength(6);
@@ -168,7 +171,8 @@ describe("TargetPeek — the almanac", () => {
       return css.slice(i, css.indexOf("}", i));
     };
     const row = block(".m-peek");
-    expect(row).toMatch(/padding: 0\.5rem 0\.9rem;/);
+    // The vertical pads are the row's height; the left pad became the pair → name gap (2026-10-27).
+    expect(row).toMatch(/padding: 0\.5rem 0\.9rem 0\.5rem 0\.3rem;/);
     expect(row).toMatch(/overflow: hidden;/);
     expect(block(".m-peek__alm-glyph")).toMatch(/font-variant-emoji: text;/);
     expect(row).toMatch(/font-size: 0\.68rem;/);

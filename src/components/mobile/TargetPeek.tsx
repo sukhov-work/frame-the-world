@@ -19,6 +19,17 @@
  * the set ↓, the arrows once as a legend; the object's own cell is dropped when it IS the sun or the moon.
  * The bearings stack in the same small grammar (altitude over azimuth) so three pairs fit a 402 px row
  * without the bar growing a pixel: the cluster's height is the two 0.56rem lines it always was.
+ *
+ * Owner 2026-10-27: TWO QUICK TARGETS lead the row — round ☀ and ☾ cells, icon only, "to start tracking them (and
+ * goto) regardless of what is currently being tracked"; the cell for the body already tracked is dropped ("for the
+ * sun panel you don't display the redundant sun button, same for the moon's — consider them quick shortcuts"). A
+ * tap is the sky menu's one-gesture TRACKING (the body becomes the target, SHOW on, the camera lock on) plus this
+ * row's own long-press GOTO (`aimAtSkyBody`). The cells sit OUTSIDE the row button, in a bar that carries the
+ * hairline — a button inside a button is invalid markup and iOS hands the tap to the outer one. The accent kind
+ * glyph that led the row left with them: the almanac's own cell already shows the object's kind, and its ~21 px
+ * (glyph + gap) were the first instalment on the pair's price — on a 402 px phone the two cells cost ≈ 35 px of
+ * the name's budget net (89 → 48 px with the comet and its BELOW badge up; a 7-letter planet keeps its letters; the
+ * harness `verify-quick-targets-2026-10-27.mjs` reads JUPITER unclipped on every twin).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -27,12 +38,12 @@ import { usePlanStore } from "../../store/plan";
 import { useCameraStore } from "../../store/camera";
 import { localTimeStr, sceneTimeMs, useTimeStore } from "../../store/time";
 import { aimAtSkyBody } from "../../store/skyAim";
-import { bodyTarget, targetAzAlt, targetShortName, type SkyTarget } from "../../lib/ephemeris/targets";
+import { bodyTarget, targetAzAlt, targetShortName, type SkyTarget, type SunMoonId } from "../../lib/ephemeris/targets";
 import { dayRiseSet, type DayEvent, type DayRiseSet } from "../../lib/ephemeris/riseSet";
 import { moonVisibilityAt } from "../../lib/ephemeris/moonVisibility";
 import { kindGlyph } from "../../lib/sky/searchIndex";
 import { cardinal, EM_DASH } from "../../lib/format/readout";
-import { ORCH } from "../globe/tuning";
+import { FPV, ORCH } from "../globe/tuning";
 import "../../styles/mobile/chrome.css";
 
 /** THE DAY'S rise / set for the row (owner 2026-10-25c — the clock day's own events, a "+1" where one falls
@@ -75,6 +86,41 @@ const say = (e: DayEvent | null): string =>
     : e.dayOffset === 0
       ? localTimeStr(e.ms)
       : `${localTimeStr(e.ms)} ${e.dayOffset === 1 ? "next day" : `in ${e.dayOffset} days`}`;
+
+/**
+ * THE QUICK TARGETS' tap (owner 2026-10-27). One gesture = the sky menu's ⊕ TRACKING for a body (`SkyContextMenu`:
+ * `setTarget` + SHOW on + the camera lock on — "start tracking it") + the row's long-press GOTO (`aimAtSkyBody`:
+ * in FPV the look glides onto the body, below the horizon onto where it next rises; on the map the planned cone
+ * turns to it — "brought to the respective target"). The lock is session-only and inert outside FPV; it is the one
+ * line to drop if the owner wants the goto alone. Exported for its unit test; the two targets are the row's own
+ * module constants.
+ */
+export function quickTrackBody(kind: SunMoonId): "look" | "plan" {
+  const sky = useSkyStore.getState();
+  sky.setTarget(kind === "sun" ? SUN_TARGET : MOON_TARGET);
+  if (!sky.visible) sky.setVisible(true); // tracking something you can't see helps no one (the search's rule)
+  sky.setTrack(true);
+  const did = aimAtSkyBody(kind);
+  // In FPV the LOCK is the goto: `stepSkyTrack` re-aims the same look glide every frame and SHADOWS the one-shot
+  // `skyLook` the goto just posted (the pose step takes `skyTrackAim ?? skyLook` and clears the one-shot only when
+  // no lock holds). Left in place it would fire as a phantom move the moment the lock releases — the body setting,
+  // or TRACK toggled off an hour later — toward the tap-time bearing. Clear it while the body sits above the lock's
+  // own release altitude; below it the lock lets go on the next frame and the one-shot (the rise-azimuth glide) is
+  // exactly the goto wanted. (Fable review 2026-10-27, finding 1.)
+  if (did === "look") {
+    const cam = useCameraStore.getState();
+    const at = cam.camGeo ?? { latDeg: cam.focusLatDeg, lonDeg: cam.focusLonDeg };
+    const alt = targetAzAlt(useSkyStore.getState().target, sceneTimeMs(), at.latDeg, at.lonDeg).altDeg;
+    if (alt >= FPV.skyTrackReleaseAltDeg) cam._clearSkyLook();
+  }
+  // A tiny haptic tick where the platform has one (Android); iOS ignores it — the long press's own tick.
+  try {
+    navigator.vibrate?.(12);
+  } catch {
+    /* never load-bearing */
+  }
+  return did;
+}
 
 interface AlmanacCell {
   key: "sun" | "moon" | "target";
@@ -209,83 +255,98 @@ export default function TargetPeek({ onOpen }: { onOpen: () => void }) {
   // the whole app already treats `visible=false` as "not there" (planFeed, scrubber, cards).
   if (!visible) return null;
 
-  return (
-    <button
-      type="button"
-      className="m-peek"
-      onClick={() => {
-        // The long press already aimed — the trailing click must not also open the sheet.
-        if (pressFired.current) {
-          pressFired.current = false;
-          return;
-        }
-        onOpen();
-      }}
-      onPointerDown={armPress}
-      onPointerMove={movePress}
-      onPointerUp={liftPress}
-      onPointerCancel={() => {
-        cancelPress();
-        downAt.current = null;
-      }}
+  // The quick cells (owner 2026-10-27): ☀ then ☾, the tracked body's own cell dropped — a shortcut to what is
+  // already tracked is noise. `target.kind` is the gate (the TargetSheet's eclipse rule: never `facts.kind`).
+  const quick = (["sun", "moon"] as const).filter((k) => k !== target.kind);
 
-      onContextMenu={(e) => e.preventDefault()}
-      aria-label={`Tracked target: ${target.name}. ${almanacLabel}. ${moonVisLabel}. Open details; hold the name to aim the view at it`}
-    >
-      <span className="m-peek__glyph" aria-hidden="true">
-        {kindGlyph(target.kind) + TEXT_GLYPH}
-      </span>
-      <span className="m-peek__name" title="Hold to aim at it">
-        {targetShortName(target).toUpperCase()}
-      </span>
-      {upNow && planTarget?.id === target.id ? (
-        <span className={`m-badge ${planTarget.blockedNow ? "m-badge--blocked" : "m-badge--clear"}`}>
-          {planTarget.blockedNow ? "BEHIND" : "CLEAR"}
+  return (
+    <div className="m-peekbar">
+      {quick.map((k) => (
+        <button
+          key={k}
+          type="button"
+          className={`m-peek__quick m-peek__quick--${k}`}
+          data-quick={k}
+          aria-label={`Track the ${k} and go to it`}
+          onClick={() => quickTrackBody(k)}
+        >
+          {kindGlyph(k) + TEXT_GLYPH}
+        </button>
+      ))}
+      <button
+        type="button"
+        className="m-peek"
+        onClick={() => {
+          // The long press already aimed — the trailing click must not also open the sheet.
+          if (pressFired.current) {
+            pressFired.current = false;
+            return;
+          }
+          onOpen();
+        }}
+        onPointerDown={armPress}
+        onPointerMove={movePress}
+        onPointerUp={liftPress}
+        onPointerCancel={() => {
+          cancelPress();
+          downAt.current = null;
+        }}
+
+        onContextMenu={(e) => e.preventDefault()}
+        aria-label={`Tracked target: ${target.name}. ${almanacLabel}. ${moonVisLabel}. Open details; hold the name to aim the view at it`}
+      >
+        <span className="m-peek__name" title="Hold to aim at it">
+          {targetShortName(target).toUpperCase()}
         </span>
-      ) : (
-        !upNow && <span className="m-badge">BELOW</span>
-      )}
-      {/* The ALMANAC (owner 2026-10-25; the single stacked pair of 2026-09-16 grew into it): the DAY's rise ↑
-          over the DAY's set ↓ (2026-10-25c — today's own events, a "+1" where one falls tomorrow), one 2-row cell
-          per body with its glyph — ☀ and ☾ always, the object's own pair beside them unless it IS one of them.
-          The same two 0.56rem lines, so the row is not a pixel taller (the marker's line-height is 0). */}
-      <span className="m-peek__alm" aria-hidden="true">
-        <span className="m-peek__alm-k">
-          <span>↑</span>
-          <span>↓</span>
-        </span>
-        {almanac.map((a) => (
-          <span
-            className="m-peek__alm-cell"
-            data-body={a.key}
-            data-vis={a.key === "moon" ? moonVis.verdict : undefined}
-            key={a.key}
-          >
-            <span className={`m-peek__alm-glyph m-peek__alm-glyph--${a.key}`}>{a.glyph + TEXT_GLYPH}</span>
-            <span className="m-peek__alm-times">
-              {[a.rs.rise, a.rs.set].map((e, i) => (
-                <span className="m-peek__alm-t" key={i}>
-                  {clock(e)}
-                  {dayMark(e) && <span className="m-peek__alm-d">{dayMark(e)}</span>}
-                </span>
-              ))}
-            </span>
+        {upNow && planTarget?.id === target.id ? (
+          <span className={`m-badge ${planTarget.blockedNow ? "m-badge--blocked" : "m-badge--clear"}`}>
+            {planTarget.blockedNow ? "BEHIND" : "CLEAR"}
           </span>
-        ))}
-      </span>
-      {/* The bearings — altitude over azimuth + cardinal, stacked in the almanac's grammar (the one-line
-          "12° · 245° SW" took the width three pairs need); a hairline separates "when" from "where". */}
-      <span className="m-peek__pos">
-        <span>{now.altDeg.toFixed(0)}°</span>
-        <span>
-          {Math.round(now.azDeg)}° {cardinal(now.azDeg)}
+        ) : (
+          !upNow && <span className="m-badge">BELOW</span>
+        )}
+        {/* The ALMANAC (owner 2026-10-25; the single stacked pair of 2026-09-16 grew into it): the DAY's rise ↑
+            over the DAY's set ↓ (2026-10-25c — today's own events, a "+1" where one falls tomorrow), one 2-row cell
+            per body with its glyph — ☀ and ☾ always, the object's own pair beside them unless it IS one of them.
+            The same two 0.56rem lines, so the row is not a pixel taller (the marker's line-height is 0). */}
+        <span className="m-peek__alm" aria-hidden="true">
+          <span className="m-peek__alm-k">
+            <span>↑</span>
+            <span>↓</span>
+          </span>
+          {almanac.map((a) => (
+            <span
+              className="m-peek__alm-cell"
+              data-body={a.key}
+              data-vis={a.key === "moon" ? moonVis.verdict : undefined}
+              key={a.key}
+            >
+              <span className={`m-peek__alm-glyph m-peek__alm-glyph--${a.key}`}>{a.glyph + TEXT_GLYPH}</span>
+              <span className="m-peek__alm-times">
+                {[a.rs.rise, a.rs.set].map((e, i) => (
+                  <span className="m-peek__alm-t" key={i}>
+                    {clock(e)}
+                    {dayMark(e) && <span className="m-peek__alm-d">{dayMark(e)}</span>}
+                  </span>
+                ))}
+              </span>
+            </span>
+          ))}
         </span>
-      </span>
-      {/* Pull-up hint (owner 2026-08-19, batch item 7: "not obvious this opens") — an own
-          element, accent-coloured, gently nudging; reduced-motion opts out in chrome.css. */}
-      <span className="m-peek__more" aria-hidden="true">
-        ▲
-      </span>
-    </button>
+        {/* The bearings — altitude over azimuth + cardinal, stacked in the almanac's grammar (the one-line
+            "12° · 245° SW" took the width three pairs need); a hairline separates "when" from "where". */}
+        <span className="m-peek__pos">
+          <span>{now.altDeg.toFixed(0)}°</span>
+          <span>
+            {Math.round(now.azDeg)}° {cardinal(now.azDeg)}
+          </span>
+        </span>
+        {/* Pull-up hint (owner 2026-08-19, batch item 7: "not obvious this opens") — an own
+            element, accent-coloured, gently nudging; reduced-motion opts out in chrome.css. */}
+        <span className="m-peek__more" aria-hidden="true">
+          ▲
+        </span>
+      </button>
+    </div>
   );
 }

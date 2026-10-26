@@ -5,15 +5,20 @@ ephemeris sky. Client-heavy; Wix is the thin backend. Owner: Yevhen. Repo `headl
 **Search order:** this graph → `.claude/claude-docs/` → `.claude/conventions/` → the code → Wix MCP. **One writer per fact:** narrative lives in
 the `project/wip-*` leaves and `DECISIONS.md`; this root only indexes and states the status (cap 12 KB — compact, never grow).
 
-## Status — 2026-10-25f (`mem:project/wip-2026-10-25-t200-moon-visibility`)
-**T200 THE MOON'S PERCEIVED VISIBILITY BUILT (rungs 1 + 2; no new shader pass), gated (vitest 3,942 / 259 · astro 0 errors), 60 / 60 on glass vs the
-baseline on the iPhone + Pixel + desktop twins → shipped (PR #164) + RELEASED v1.36.51, proven live by the house Chrome AND the Device Farm iPhone (DECISIONS 2026-10-25g).**
-(1) the pure model `lib/ephemeris/moonVisibility.ts` (K&S · Kasten–Young · Schaefer extinction → the tint · the sky ladder · contrast = L_lit·T / L_sky ·
-Crumey · Danjon) → `{ verdict, label, reason, … }`; (2) the verdict on the TODAY rows (±40 min), the MOON section's `☾ NOW · …` line, the tracked moon's
-badge, the /m peek's ☾ `data-vis` — both shells; (3) the disc: `uMoonAir` / `uMoonTint` by the moon's OWN altitude (exactly 1 / white ≥ 12° and from orbit;
-floor 0.45; `solarChroma` ≤ 8°, floored [1, .42, .16]) and `uDaySky` = the earthshine-vs-dome share (`moonDaySkyK`; additive-only to the bit by day).
-Measured: the 8.4° dusk full moon 184,183,177 → 149,138,115, the sun +1° dark-limb hole −16 → −1, the 21° night disc byte-identical. NEXT: the owner's
-live read on the real phone → the T200 tails → the ADR's §3.2–3.6 → T198 · T197 · T196.
+## Status — 2026-10-27 (`mem:project/wip-2026-10-27-quick-targets`)
+**T202 THE /m QUICK TARGETS BUILT, gated (vitest 3,965 / 261 · astro 0), the harness ALL PASS on the three twins + the iPhone FPV + the search flow
+(DECISIONS 2026-10-27).** The tracked row's `<div class="m-peekbar">` holds round icon-only [☀][☾] cells BEFORE the `.m-peek` button (the tracked
+body's own cell dropped; never a button inside the row button); a tap = `quickTrackBody`: setTarget → SHOW → the FPV lock → `aimAtSkyBody` (the sky
+menu's ⊕ TRACKING + the row's long-press goto). The leading kind glyph is GONE (the width; the almanac's cell shows the kind); the bar stays 38.59 px.
+The SKY search sheet's idle list pins ☀ SUN · ☾ MOON then RECENT (3 of 5, `recentSky` INSIDE `ftw:view-prefs:v1`, sun/moon never) above MY PLACES,
+every row through the soft-aim `track()`. NEXT: release T202 + read it live → the owner's phone read (the cells, the sheet, the T200 moon) → the
+T200 tails → the ADR's §3.2–3.6 → T198 · T197 · T196.
+
+## Status — the recent eras (one line each; the leaves carry the numbers)
+- 10-25e→10-26b T200 THE MOON'S PERCEIVED VISIBILITY → v1.36.51 + T201 the TEX toggle hides the facade icons → v1.36.53 (`wip-2026-10-25-t200-moon-visibility`):
+  the pure `lib/ephemeris/moonVisibility.ts` (K&S · Kasten–Young · Schaefer · Crumey · Danjon) → the verdict on the TODAY rows / the MOON line / the
+  tracked moon's badge / the /m peek's ☾ `data-vis`; the disc's `uMoonAir` / `uMoonTint` / `uDaySky` by its own altitude; proven live by the house
+  Chrome + the Device Farm iPhone; the tails: the chroma's reach, the ±40 min sample, the crescent-in-afterglow residual.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
 - 10-25→10-25d THE MOBILE INTERLUDE → v1.36.48 (`wip-2026-10-25-mobile-interlude-radar-almanac`): every /m radar surface at the fan's strokes · the peek row's ☀ ☾ almanac · the DAY's rise / set (+1).
