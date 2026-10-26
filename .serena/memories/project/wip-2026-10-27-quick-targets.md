@@ -5,7 +5,9 @@ the diff; the main session built the row, the harness, the gates). The owner's v
 Records: DECISIONS 2026-10-27 · backlog T202 BUILT · NSP · this leaf. Harness `scripts/verify-quick-targets-2026-10-27.mjs` (legs 1 the bar on
 the iPhone 402 / Pixel 412 / 360 twins · 2 the iPhone FPV · 3 the search flow; `--devices`); shots `verify-shots/quick-targets-2026-10-27/`.
 **Gates: vitest 3,965 / 261 (the `bestSpotSolver` timing test flaked under the house Chrome's load, green alone 75 / 75) · `astro check` 0 errors ·
-the harness ALL PASS.**
+the harness ALL PASS.** Shipped PR #168 `e5d7223` (the foreground ship with `FTW_SHIP_SKIP_GATES=1` after the green shell gates, landed in 60 s) and
+**RELEASED v1.36.55** (`release:full --skip-gates`, 188 assets warmed); proven live by ONE DOM read after a 120 s pause (the stamp v1.36.55, the
+cells at 25 px, the bar 38.59 px, the sheet's QUICK TARGETS rows) — the first probe 150 s after the warm still met the edge throttle (DECISIONS 2026-10-27b).
 
 ## 1. THE ROW (`mobile/TargetPeek.tsx` + chrome.css)
 - `<div class="m-peekbar">` (flex, carries the hairline) → `[☀][☾]` `<button class="m-peek__quick m-peek__quick--sun|moon" data-quick>` then the

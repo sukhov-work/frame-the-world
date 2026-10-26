@@ -11,8 +11,8 @@ the `project/wip-*` leaves and `DECISIONS.md`; this root only indexes and states
 body's own cell dropped; never a button inside the row button); a tap = `quickTrackBody`: setTarget → SHOW → the FPV lock → `aimAtSkyBody` (the sky
 menu's ⊕ TRACKING + the row's long-press goto). The leading kind glyph is GONE (the width; the almanac's cell shows the kind); the bar stays 38.59 px.
 The SKY search sheet's idle list pins ☀ SUN · ☾ MOON then RECENT (3 of 5, `recentSky` INSIDE `ftw:view-prefs:v1`, sun/moon never) above MY PLACES,
-every row through the soft-aim `track()`. NEXT: release T202 + read it live → the owner's phone read (the cells, the sheet, the T200 moon) → the
-T200 tails → the ADR's §3.2–3.6 → T198 · T197 · T196.
+every row through the soft-aim `track()`. RELEASED v1.36.55 (PR #168), proven live by one DOM read (the stamp, the cells, the pinned rows). NEXT: the owner's phone read (the cells,
+the sheet, the T200 moon) → the T200 tails → the ADR's §3.2–3.6 → T198 · T197 · T196.
 
 ## Status — the recent eras (one line each; the leaves carry the numbers)
 - 10-25e→10-26b T200 THE MOON'S PERCEIVED VISIBILITY → v1.36.51 + T201 the TEX toggle hides the facade icons → v1.36.53 (`wip-2026-10-25-t200-moon-visibility`):
@@ -29,7 +29,7 @@ T200 tails → the ADR's §3.2–3.6 → T198 · T197 · T196.
 
 ## Standing facts (2026-10-25f)
 - Gates: vitest **3,942 / 259 files** · `astro check` **0 errors** (753 files; the hints are the dated baseline). Three timing tests flake under load (`bestSpotSolver`, `bestSpotResidency`, `planFeed`).
-- `package.json` **1.36.53**; live **v1.36.53** (2026-10-26b, PR #166 `c01eea8` — T201 the TEX toggle hides the facade icons; T200 = v1.36.51, PR #164). Release:
+- `package.json` **1.36.55**; live **v1.36.55** (2026-10-27b, PR #168 `e5d7223` — T202 the /m quick targets; T201 = v1.36.53, T200 = v1.36.51). Release:
   `FTW_SHIP_DAEMON=1 npm run release:full -- -c "…"` (≤ 250 BYTES; `--skip-gates` only right after a ship's gates on the identical tree); `release.sh`
   uses the PINNED CLI (`node_modules/.bin/wix`). **`wix dev` on Node 24.10** (`~/.nvm/versions/node/v24.10.0/bin`), the CDP harnesses too.
   **`wix dev` cannot elevate (T173)** — persistence is proven only live (`verify-facades-live.mjs`, `verify-live-deletes.mjs`).
@@ -53,8 +53,8 @@ T200 tails → the ADR's §3.2–3.6 → T198 · T197 · T196.
   the public-exposure class (T138/T139) until launch — the textures carve-out (T190) excepted.
 
 ## Next step
-**The owner's live read of the moon on the real phone (the 2026-10-25 dusk moonrise from their street: PLAN → MOON · NOW, the tracked moon's badge, the
-peek's ☾) → the T200 tails as ruled (the chroma's reach · the ±40 min sample · the crescent-in-afterglow residual) → the ADR's remaining questions
+**The owner's phone read of T202 (the ☀ ☾ cells' tap in FPV and on the map, the SEARCH sheet's pinned rows + RECENT) and of the T200 moon (the dusk
+moonrise from their street: PLAN → MOON · NOW, the tracked moon's badge, the peek's ☾) → the T200 tails as ruled (the chroma's reach · the ±40 min sample · the crescent-in-afterglow residual) → the ADR's remaining questions
 (§3.2–3.6) → T198 (the harness's RETRY) · T197 (the loupe first) · T196 · T166 · T165 · T167 · T164.** Open tails: the lift 0.3 m, the /m LOOK at the apex.
 
 ## Era index
